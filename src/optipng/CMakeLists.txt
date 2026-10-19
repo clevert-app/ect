@@ -30,6 +30,7 @@ if(NOT MSVC)
 endif()
 
 add_subdirectory(../libpng libpng EXCLUDE_FROM_ALL)
+target_include_directories(png_static PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(optipng
 	png_static)
 
