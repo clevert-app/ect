@@ -871,7 +871,7 @@ status_t ZipFile::compressFpToFp(FILE* dstFp, FILE* srcFp,
     ZopfliOptions options;
     unsigned char bp = 0;
 
-    ZopfliInitOptions(&options, 3, 0, 0);
+    ZopfliInitOptions(&options, getZopfliLevel(), 0, 0);
 
     crc = crc32(0L, Z_NULL, 0);
 
