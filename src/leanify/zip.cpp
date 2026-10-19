@@ -371,7 +371,7 @@ size_t Zip::Leanify(const ECTOptions& Options, size_t* files) {
     p_write += local_header->compressed_size;
 
     free(decompress_buf);
-    delete[] compress_buf;
+    free(compress_buf);
   }
 
   // central directory offset
