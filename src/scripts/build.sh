@@ -22,7 +22,7 @@ if [ "$1" = build ]; then
     export LDFLAGS="$LDFLAGS -Wl,--gc-sections"
   elif [ "$(uname | cut -d "-" -f 1) $(uname -m)" = "MINGW64_NT x86_64" ]; then
     # C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start
-    # pacman -S --needed --noconfirm $(echo _zip_zstd_clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
+    # pacman -Syu --needed --noconfirm zip zstd $(echo _clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
     export CFLAGS="$CFLAGS -march=x86-64-v3"
     export LDFLAGS="$LDFLAGS -static -lole32 -lshlwapi"
   elif [ "$(uname) $(uname -m)" = "Darwin arm64" ]; then
@@ -37,7 +37,7 @@ if [ "$1" = build ]; then
     uname -a
     exit 1
   fi
-  if [ "$2" = profile-generate ]; then  
+  if [ "$2" = profile-generate ]; then
     # export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-dir=$(pwd)/pgo -fprofile-generate" # gcc
     export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-generate=$(pwd)/pgo"
   elif [ "$2" = profile-use ]; then
