@@ -298,10 +298,16 @@ size_t Zip::Leanify(const ECTOptions& Options, size_t* files) {
       break;
     }
 
+    // If encrypted, just move it.
+    if (local_header->flag & 1) {
+      memmove(p_write, p_read, local_header->compressed_size);
+      p_write += local_header->compressed_size;
+      continue;
+    }
+
     // If the method is store, just Leanify the embedded file
-    // don't try to change it to deflate, it might break some file.
-    if (local_header->compression_method == 0) {
-      // method is store
+    // don't try to change it to deflate, it might break some file. unless Options.CompressStored is true
+    if (local_header->compression_method == 0 && !Options.CompressStored) {
       if (local_header->compressed_size) {
         uint32_t new_size = Options.Strict ? local_header->compressed_size : RecompressFile(p_read, local_header->compressed_size, p_read - p_write, filename, Options);
         if(new_size == local_header->compressed_size){
@@ -315,8 +321,8 @@ size_t Zip::Leanify(const ECTOptions& Options, size_t* files) {
       continue;
     }
 
-    // If unsupported compression method or encrypted, just move it.
-    if (local_header->compression_method != 8 || local_header->flag & 1) {
+    // If unsupported compression method, just move it.
+    if (local_header->compression_method != 8 && local_header->compression_method != 0) {
       memmove(p_write, p_read, local_header->compressed_size);
       p_write += local_header->compressed_size;
       continue;
@@ -332,7 +338,15 @@ size_t Zip::Leanify(const ECTOptions& Options, size_t* files) {
     // decompress
     size_t decompressed_size = 0;
     uint8_t* decompress_buf = 0;
-    unsigned error = lodepng_inflate((unsigned char**)&decompress_buf, &decompressed_size, (unsigned char*)p_read, local_header->compressed_size);
+    unsigned error = 0;
+    if (local_header->compression_method == 0) {
+      decompressed_size = local_header->compressed_size;
+      decompress_buf = (uint8_t*)malloc(decompressed_size);
+      memcpy(decompress_buf, p_read, decompressed_size);
+    } else {
+      // reused the generic decompression function from lodepng
+      error = lodepng_inflate((unsigned char**)&decompress_buf, &decompressed_size, (unsigned char*)p_read, local_header->compressed_size);
+    }
 
     if (error || decompressed_size != local_header->uncompressed_size ||
         local_header->crc32 != crc32(0, decompress_buf, local_header->uncompressed_size)) {
@@ -361,6 +375,9 @@ size_t Zip::Leanify(const ECTOptions& Options, size_t* files) {
       cd_header.uncompressed_size = local_header->uncompressed_size = new_uncomp_size;
       memcpy(p_write, decompress_buf, new_uncomp_size);
     } else if (new_comp_size < local_header->compressed_size) {
+      cd_header.compression_method = local_header->compression_method = 8;
+      cd_header.version_needed = std::max<uint16_t>(cd_header.version_needed, 20);
+      local_header->version_needed = std::max<uint16_t>(local_header->version_needed, 20);
       cd_header.crc32 = local_header->crc32 = crc32(0, decompress_buf, new_uncomp_size);
       cd_header.compressed_size = local_header->compressed_size = new_comp_size;
       cd_header.uncompressed_size = local_header->uncompressed_size = new_uncomp_size;

@@ -27,6 +27,7 @@ struct ECTOptions{
   bool PNG_ACTIVE;
   bool SavingsCounter;
   bool Strict;
+  bool CompressStored;
   bool Arithmetic;
   bool Gzip;
   bool Zip;
