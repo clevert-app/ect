@@ -18,7 +18,7 @@ if [ "$1" = build ]; then
     # curl -O -L https://apt.llvm.org/llvm.sh # install on debian 13
     # bash llvm.sh 23 -m https://mirrors.nju.edu.cn/llvm-apt # apt-get purge --autoremove lldb-23 clangd-23 # or, only install clang-23 lld-23
     export PATH="/usr/lib/llvm-23/bin:$PATH"
-    export CFLAGS="$CFLAGS -march=x86-64-v3" # without v3 may be faster?
+    export CFLAGS="$CFLAGS " # -march=x86-64-v3 # without v3 may be faster?
     export LDFLAGS="$LDFLAGS -Wl,--gc-sections"
   elif [ "$(uname | cut -d "-" -f 1) $(uname -m)" = "MINGW64_NT x86_64" ]; then
     # C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start
@@ -51,7 +51,7 @@ if [ "$1" = build ]; then
   # export PATH="/usr/lib/ccache:$PATH" CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache # ln -sf /media/kkocdko/KK_TMP_1/home/.cache/ccache ~/.cache/ccache
   # > ect
   # cd ect
-  find build -mindepth 1 -delete || true # like rm -rf build/*
+  find build/ -mindepth 1 -delete || true # like rm -rf build/*
   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF # ect use it's custom zlib, so link to system zlib is impossible
   cmake --build build
   # llvm-objcopy --strip-sections --remove-section=.note.* --remove-section=.comment build/ect

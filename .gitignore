@@ -3,6 +3,8 @@
 *.a
 *.tmp
 build
+bench_res
+bench_res_bak
 
 # macOS ancillary files
 .DS_Store
