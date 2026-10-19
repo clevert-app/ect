@@ -62,4 +62,12 @@ namespace zip_archive {
   struct Reader {};
   struct Writer { virtual bool Append(uint8_t* buf, size_t buf_size) = 0; };
 }
+inline int getZopfliLevel() {
+  static const int level = []() {
+    const char* s = getenv("ZIPALIGN_ZOPFLI_LEVEL");
+    int v = s ? strtol(s, NULL, 10) : -1;
+    return (3 <= v && v <= 9) ? v : 3;
+  }();
+  return level;
+}
 #endif
