@@ -1,5 +1,6 @@
 #ifndef ZIPALIGN_COMPAT_H_
 #define ZIPALIGN_COMPAT_H_
+#define _FILE_OFFSET_BITS 64
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,6 +13,9 @@
 #include <thread>
 #include <deque>
 #include <memory>
+#if defined(__APPLE__) || !defined(off64_t)
+typedef off_t off64_t;
+#endif
 #define ALOGV(...) ((void)0)
 #define ALOGD(...) ((void)0)
 #define ALOGW(...) fprintf(stderr, __VA_ARGS__)
