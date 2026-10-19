@@ -131,7 +131,7 @@ find_package(ZLIB)
 
 option(ECT_MULTITHREADING "Enable multithreaded processing support" ON)
 option(ECT_MP3_SUPPORT "Enable MP3 support (not currently working)" OFF)
-option(ECT_ZIPALIGN_SUPPORT "Enable zipalign support" OFF)
+option(ECT_ZIPALIGN_SUPPORT "Enable zipalign support" ON)
 
 add_subdirectory(leanify EXCLUDE_FROM_ALL)
 add_subdirectory(lodepng EXCLUDE_FROM_ALL)
