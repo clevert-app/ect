@@ -1,0 +1,95 @@
+name: release_nightly
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  linux-x64:
+    runs-on: ubuntu-24.04 # https://github.com/actions/runner-images
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Build
+        shell: sudo -E bash -e {0}
+        run: |
+          # install toolchain
+          curl -O -L https://apt.llvm.org/llvm.sh
+          bash llvm.sh 23 # -m https://mirrors.nju.edu.cn/llvm-apt
+          apt-get install zip zstd make cmake ninja-build nasm
+          # build and pack
+          cd src
+          scripts/build.sh build
+          cd ..
+          mv src/build/ect ect
+          asset_name="linux-x64_$(date -u +%Y%m%d-%H%M).zip"
+          zip -9 $asset_name ect
+          echo "ASSET_NAME=$asset_name" >> "$GITHUB_ENV"
+          # verify
+          uname -a
+          ldd --version
+          ldd ./ect || true
+          ./ect
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "v0.0.0-alpha"
+          files: ${{ env.ASSET_NAME }}
+  mac-arm64:
+    runs-on: macos-26
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Build
+        run: |
+          # install toolchain
+          brew install llvm@23 lld@23 cmake ninja nasm
+          # build and pack
+          cd src
+          scripts/build.sh build
+          cd ..
+          mv src/build/ect ect
+          asset_name="mac-arm64_$(date -u +%Y%m%d-%H%M).zip"
+          zip -9 $asset_name ect
+          echo "ASSET_NAME=$asset_name" >> "$GITHUB_ENV"
+          # verify
+          sw_vers
+          otool -L ./ect || true
+          ./ect
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "v0.0.0-alpha"
+          files: ${{ env.ASSET_NAME }}
+  win-x64:
+    runs-on: windows-2025
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Build
+        shell: C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start -use-full-path -eo pipefail {0}
+        run: |
+          # install toolchain
+          pacman -S --needed --noconfirm zip zstd $(echo _clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
+          # build and pack
+          cd src
+          scripts/build.sh build
+          cd ..
+          mv src/build/ect.exe ect.exe
+          asset_name="win-x64_$(date -u +%Y%m%d-%H%M).zip"
+          zip -9 $asset_name ect.exe
+          echo "ASSET_NAME=$asset_name" >> "$GITHUB_ENV"
+          # verify
+          uname -a
+          ldd ./ect.exe || true
+          ./ect.exe
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: "v0.0.0-alpha"
+          files: ${{ env.ASSET_NAME }}
