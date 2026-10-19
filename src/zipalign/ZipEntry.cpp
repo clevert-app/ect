@@ -23,7 +23,7 @@
 #define LOG_TAG "zip"
 
 #include "ZipEntry.h"
-#include <utils/Log.h>
+#include "compat.h" // was #include <utils/Log.h>
 
 #include <assert.h>
 #include <inttypes.h>

@@ -21,8 +21,7 @@
 #ifndef __LIBS_ZIPFILE_H
 #define __LIBS_ZIPFILE_H
 
-#include <utils/Vector.h>
-#include <utils/Errors.h>
+#include "compat.h" // was #include <utils/Vector.h> and #include <utils/Errors.h>
 #include <stdio.h>
 
 #include "ZipEntry.h"
