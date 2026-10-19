@@ -66,7 +66,7 @@ inline int getZopfliLevel() {
   static const int level = []() {
     const char* s = getenv("ZIPALIGN_ZOPFLI_LEVEL");
     int v = s ? strtol(s, NULL, 10) : -1;
-    return (3 <= v && v <= 9) ? v : 3;
+    return (3 <= v && v <= 9) ? v : 4;
   }();
   return level;
 }
