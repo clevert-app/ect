@@ -521,7 +521,46 @@ static void multithreadFileLoop(const std::vector<std::string> &fileList, std::a
     }
 }
 
-int main(int argc, const char * argv[]) {
+#ifdef ZIPALIGN_SUPPORTED
+extern "C" int cmd_zipalign_main(int argc, char* const argv[]);
+#endif
+
+static void multiCall(int argc, char *argv[]) {
+    // supported usages:
+    // $ ect --as zipalign -z -P 4 4 input.apk output.apk # use --as switch
+    // $ ect --as=zipalign ... remain args like above
+    // $ zipalign -z -P 4 4 input.apk output.apk # rename ect to zipalign (or zipalign.exe on windows)
+    if (argc < 1 || argv[0] == NULL) return;
+    // first we should check `--as` switch to extract applet, if not matched, assume argv0 as applet
+    char *applet = NULL; // should contains zipalign/cwebp ... and future more things
+    if (argc >= 3 && strcmp(argv[1], "--as") == 0) {
+        applet = argv[2];
+        argc -= 2, argv += 2;
+    } else if (argc >= 2 && strncmp(argv[1], "--as=", 5) == 0) {
+        argv[1] += 5;
+        applet = argv[1];
+        argc -= 1, argv += 1;
+    } else {
+        applet = strrchr(argv[0], '/');
+        applet = applet ? applet + 1 : argv[0];
+        char *bslash = strrchr(applet, '\\'); // because the msys2 shell may use both slash and bslash in the path
+        applet = bslash ? bslash + 1 : applet;
+        size_t len = strlen(applet);
+        if (len >= 4) {
+            char *dot = applet + len - 4; // upper case `.EXE` is not supported
+            if (strcmp(dot, ".exe") == 0) {
+                *dot = '\0';
+            }
+        }
+    }    
+    #ifdef ZIPALIGN_SUPPORTED
+    if (strcmp(applet, "zipalign") == 0) exit(cmd_zipalign_main(argc, argv));
+    #endif
+}
+
+int main(int argc, char *argv_raw[]) {
+    multiCall(argc, argv_raw); // in `multiCall` it will check self name, if match, run then exit, works like busybox applets
+    const char **argv = const_cast<const char **>(argv_raw); // resume origin argv type define
     std::atomic<unsigned> error(0);
     ECTOptions Options;
     Options.strip = false;

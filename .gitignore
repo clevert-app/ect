@@ -1,7 +1,7 @@
 # Ignore built objects and build output
 *.o
 *.a
-build/
+build
 
 # macOS ancillary files
 .DS_Store

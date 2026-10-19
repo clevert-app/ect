@@ -32,7 +32,6 @@ add_executable(ect
   gztools.h
   LzFind.h
   main.h
-  pngusr.h
   support.h
   mozjpeg/transupp.c
 )
@@ -132,6 +131,7 @@ find_package(ZLIB)
 
 option(ECT_MULTITHREADING "Enable multithreaded processing support" ON)
 option(ECT_MP3_SUPPORT "Enable MP3 support (not currently working)" OFF)
+option(ECT_ZIPALIGN_SUPPORT "Enable zipalign support" OFF)
 
 add_subdirectory(leanify EXCLUDE_FROM_ALL)
 add_subdirectory(lodepng EXCLUDE_FROM_ALL)
@@ -147,7 +147,6 @@ add_subdirectory(zlib EXCLUDE_FROM_ALL)
 set(ZLIB_LIBRARY ${CMAKE_CURRENT_BINARY_DIR}/zlib/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX})
 set(ZLIB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
 add_subdirectory(zopfli EXCLUDE_FROM_ALL)
-file(COPY ${CMAKE_SOURCE_DIR}/pngusr.h DESTINATION ${CMAKE_SOURCE_DIR}/libpng/)
 add_subdirectory(optipng EXCLUDE_FROM_ALL)
 # Mozjpeg changes the install prefix if it thinks the current is defaulted
 set(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT FALSE)
@@ -207,6 +206,18 @@ if(ECT_MP3_SUPPORT)
   target_compile_definitions(ect
     PRIVATE
     MP3_SUPPORTED=1)
+endif()
+
+if(ECT_ZIPALIGN_SUPPORT)
+  target_sources(ect PRIVATE
+    zipalign/ZipAlignMain.cpp
+    zipalign/ZipAlign.cpp
+    zipalign/ZipEntry.cpp
+    zipalign/ZipFile.cpp)
+  target_include_directories(ect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(ect
+    PRIVATE
+    ZIPALIGN_SUPPORTED=1)
 endif()
 
 install(TARGETS ect RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
