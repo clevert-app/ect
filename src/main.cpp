@@ -67,6 +67,7 @@ static void Usage() {
             " --disable-png     Disable PNG optimization\n"
             " --disable-jpg     Disable JPEG optimization\n"
             " --strict          Enable strict losslessness\n"
+            " --compress-stored Deflate stored ZIP entries (may break APK and other formats)\n"
             " --reuse           Keep PNG filter and colortype\n"
             " --allfilters      Try all PNG filter modes\n"
             " --allfilters-b    Try all PNG filter modes, including brute force strategies\n"
@@ -577,6 +578,7 @@ int main(int argc, char *argv_raw[]) {
     Options.Zip = 0;
     Options.SavingsCounter = true;
     Options.Strict = false;
+    Options.CompressStored = false;
     Options.DeflateMultithreading = 0;
     Options.FileMultithreading = 0;
     Options.Reuse = 0;
@@ -616,6 +618,7 @@ int main(int argc, char *argv_raw[]) {
             else if (strncmp(argv[i], "-recurse", strlen) == 0)  {Options.Recurse = 1;}
 #endif
             else if (strcmp(argv[i], "--strict") == 0) {Options.Strict = true;}
+            else if (strcmp(argv[i], "--compress-stored") == 0) {Options.CompressStored = true;}
             else if (strcmp(argv[i], "--reuse") == 0) {Options.Reuse = true;}
             else if (strcmp(argv[i], "--allfilters") == 0) {Options.Allfilters = true;}
             else if (strcmp(argv[i], "--allfilters-b") == 0) {Options.Allfiltersbrute = Options.Allfilters = true;}
