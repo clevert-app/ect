@@ -20,8 +20,7 @@
 
 #define LOG_TAG "zip"
 
-#include <utils/Log.h>
-#include <ziparchive/zip_archive.h>
+#include "compat.h" // was #include <utils/Log.h> and #include <ziparchive/zip_archive.h>
 
 #include "ZipFile.h"
 
@@ -307,7 +306,7 @@ status_t ZipFile::readCentralDir(void)
             return result;
         }
 
-        mEntries.add(pEntry);
+        mEntries.push_back(pEntry);
     }
 
 
@@ -480,7 +479,7 @@ status_t ZipFile::addCommon(const char* fileName, const void* data, size_t size,
     /*
      * Add pEntry to the list.
      */
-    mEntries.add(pEntry);
+    mEntries.push_back(pEntry);
     if (ppEntry != NULL)
         *ppEntry = pEntry;
     pEntry = NULL;
@@ -612,7 +611,7 @@ status_t ZipFile::add(const ZipFile* pSourceZip, const ZipEntry* pSourceEntry,
     /*
      * Add pEntry to the list.
      */
-    mEntries.add(pEntry);
+    mEntries.push_back(pEntry);
     if (ppEntry != NULL)
         *ppEntry = pEntry;
     pEntry = NULL;
@@ -739,7 +738,7 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
     /*
      * Add pEntry to the list.
      */
-    mEntries.add(pEntry);
+    mEntries.push_back(pEntry);
     if (ppEntry != NULL)
         *ppEntry = pEntry;
     pEntry = NULL;
@@ -872,13 +871,13 @@ status_t ZipFile::compressFpToFp(FILE* dstFp, FILE* srcFp,
     ZopfliOptions options;
     unsigned char bp = 0;
 
-    ZopfliInitOptions(&options);
+    ZopfliInitOptions(&options, 3, 0, 0);
 
     crc = crc32(0L, Z_NULL, 0);
 
     if (data) {
         crc = crc32(crc, (const unsigned char*)data, size);
-        ZopfliDeflate(&options, 2, true, (const unsigned char*)data, size, &bp,
+        ZopfliDeflate(&options, true, (const unsigned char*)data, size, &bp,
             &outBuf, &outSize);
     } else {
         /*
@@ -908,7 +907,7 @@ status_t ZipFile::compressFpToFp(FILE* dstFp, FILE* srcFp,
             }
 
             crc = crc32(crc, inBuf, getSize);
-            ZopfliDeflate(&options, 2, atEof, inBuf, getSize, &bp, &outBuf, &outSize);
+            ZopfliDeflate(&options, atEof, inBuf, getSize, &bp, &outBuf, &outSize);
         } while (!atEof);
         delete[] inBuf;
     }
@@ -1065,7 +1064,7 @@ status_t ZipFile::crunchArchive(void)
             delCount++;
 
             delete pEntry;
-            mEntries.removeAt(i);
+            mEntries.erase(mEntries.begin() + i);
 
             /* adjust loop control */
             count--;
@@ -1307,9 +1306,7 @@ void* ZipFile::uncompress(const ZipEntry* entry) const
             }
             break;
         case ZipEntry::kCompressDeflated: {
-            const FileReader reader(mZipFp);
-            BufferWriter writer(buf, unlen);
-            if (zip_archive::Inflate(reader, clen, unlen, &writer, nullptr) != 0) {
+            if (ZipInflateFile(mZipFp, clen, buf, unlen) != 0) {
                 goto bail;
             }
             break;

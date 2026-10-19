@@ -22,7 +22,7 @@
 #ifndef __LIBS_ZIPENTRY_H
 #define __LIBS_ZIPENTRY_H
 
-#include <utils/Errors.h>
+#include "compat.h" // was #include <utils/Errors.h>
 
 #include <stdlib.h>
 #include <stdint.h>
