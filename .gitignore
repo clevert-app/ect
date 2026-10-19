@@ -1,6 +1,7 @@
 # Ignore built objects and build output
 *.o
 *.a
+*.tmp
 build
 
 # macOS ancillary files

@@ -170,6 +170,9 @@ endif()
 # to make it" for the (never built) library.
 ExternalProject_Add(mozjpeg
   URL ${CMAKE_SOURCE_DIR}/mozjpeg
+  CMAKE_ARGS
+    "-DCMAKE_AR=${CMAKE_AR}"
+    "-DCMAKE_RANLIB=${CMAKE_RANLIB}"
   BUILD_COMMAND ${CMAKE_COMMAND} --build . --target jpeg-static
   BUILD_BYPRODUCTS <BINARY_DIR>/${MOZJPEG_LIB_NAME}
   INSTALL_COMMAND ""

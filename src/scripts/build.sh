@@ -31,6 +31,8 @@ if [ "$1" = build ]; then
     export PATH="$(brew --prefix llvm@23)/bin:$(brew --prefix lld@23)/bin:$PATH"
     export CFLAGS="$CFLAGS -mcpu=apple-m1 -mmacosx-version-min=14.0" MACOSX_DEPLOYMENT_TARGET=14.0
     export LDFLAGS="$LDFLAGS -Wl,-dead_strip"
+    export CMAKE_TOOLCHAIN_FILE="$(pwd)/toolchain.cmake.tmp"
+    printf "set(CMAKE_AR $(command -v llvm-ar))\nset(CMAKE_RANLIB $(command -v llvm-ranlib))\n" > "$CMAKE_TOOLCHAIN_FILE"
   else
     uname -a
     exit 1
