@@ -52,7 +52,7 @@ void usage(void)
 /*
  * Parse args.
  */
-int main(int argc, char* const argv[])
+extern "C" int cmd_zipalign_main(int argc, char* const argv[])
 {
     bool wantUsage = false;
     bool check = false;
