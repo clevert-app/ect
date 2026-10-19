@@ -1270,7 +1270,7 @@ void* ZipFile::uncompress(const ZipEntry* entry) const
     size_t unlen = entry->getUncompressedLen();
     size_t clen = entry->getCompressedLen();
 
-    void* buf = malloc(unlen);
+    void* buf = calloc(unlen + 32, 1);
     if (buf == NULL) {
         return NULL;
     }
