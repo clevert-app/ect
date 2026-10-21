@@ -26,7 +26,7 @@ if [ "$1" = build ]; then
     export CFLAGS="$CFLAGS -march=x86-64-v3"
     export LDFLAGS="$LDFLAGS -static -lole32 -lshlwapi"
   elif [ "$(uname) $(uname -m)" = "Darwin arm64" ]; then
-    # ssh mac@mac-mini-m1.lan
+    # ssh mac_m1
     # brew install llvm@23 lld@23 cmake ninja nasm
     export PATH="$(brew --prefix llvm@23)/bin:$(brew --prefix lld@23)/bin:$PATH"
     export CFLAGS="$CFLAGS -mcpu=apple-m1 -mmacosx-version-min=14.0" MACOSX_DEPLOYMENT_TARGET=14.0
@@ -99,6 +99,30 @@ fi
 if [ "$1" = measure ]; then
   # === to measure the result
   cd $dist_dir
+  mkdir -p measure_res_bak
+  res_args=""
+  res_args="$res_args -o measure_res_bak/001.png -L https://user-images.githubusercontent.com/634063/202742985-bb3b3b94-8aca-404a-8d8a-fd6a6f030672.png" # github desktop screenshot with alpha
+  res_args="$res_args -o measure_res_bak/002.png -L https://github.com/libjxl/testdata/raw/73695d303670c90e4d506ea89d9901b081385089/jxl/flower/flower.png" # jxl flower big size test file
+  res_args="$res_args -o measure_res_bak/003.zip -L https://github.com/moonlight-stream/moonlight-android/releases/download/v12.2/app-nonRoot-release.apk" # moonlight apk
+  res_args="$res_args -o measure_res_bak/004.zip -L https://mattmahoney.net/dc/enwik8.zip" # enwik8
+  res_args="$res_args -o measure_res_bak/005.tar.gz -L https://github.com/thunderbird/thunderbird-android/archive/refs/tags/THUNDERBIRD_24_0.tar.gz" # thunderbird-android source code tar gz
+  curl --parallel --skip-existing $res_args
+  ls -lh measure_res_bak
+  # The `ulpatch` mean "Unbounded Lengths Patch", aka, this PR. And the `fixsimd` means above wrong auto vectorize prevent patch.
+  for name in ect_lto ect_lto_ulpatch ect_lto_fixsimd ect_lto_fixsimd_ulpatch; do
+    rm -rf bench_res
+    cp -a bench_res_bak bench_res
+    echo "=============================="
+    echo "[ $name ]"
+    time -p taskset -c 2 ./$name -4 bench_res/001.png
+    time -p taskset -c 2 ./$name -6 bench_res/002.png
+    time -p taskset -c 2 ./$name -6 -zip bench_res/003.zip
+    time -p taskset -c 2 ./$name -3 -zip bench_res/004.zip
+    time -p taskset -c 2 ./$name -6 -zip bench_res/004.zip
+    time -p taskset -c 2 ./$name -6 -gzip bench_res/005.tar.gz
+  done
+  exit
+
   if [ "$2" = png ]; then
     # curl -o test_1.bak.jpeg --skip-existing -L 'https://cn.bing.com/th?id=OHR.ArtemisRocket_EN-US5256990037_UHD.jpg&rf=LaDigue_UHD.jpg&pid=hp&w=3840&h=2160&rs=1&c=4'
     tar -O -xf $dist_dir/prepare.tar.zst build/pgo_res_bak/001.png > test_1.bak.png # 001=screenshot 002=flower 003=hdrroom
