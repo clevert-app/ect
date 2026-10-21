@@ -38,6 +38,13 @@ add_executable(ect
 
 add_executable(ect::ect ALIAS ect)
 
+if(WIN32)
+  enable_language(RC)
+  file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/utf8.manifest" CONTENT [=[<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><assemblyIdentity type="win32" name="ect" version="1.0.0.0" processorArchitecture="*" /><application xmlns="urn:schemas-microsoft-com:asm.v3"><windowsSettings><activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage></windowsSettings></application></assembly>]=])
+  file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/utf8_manifest.rc" CONTENT "1 24 \"${CMAKE_CURRENT_BINARY_DIR}/utf8.manifest\"\n")
+  target_sources(ect PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/utf8_manifest.rc")
+endif()
+
 if(MINGW)
   add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-mno-ms-bitfields>)
   add_compile_options($<$<COMPILE_LANGUAGE:C>:-mno-ms-bitfields>)
