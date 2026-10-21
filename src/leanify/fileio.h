@@ -11,6 +11,11 @@ class File {
  public:
   explicit File(const char* filepath);
 
+  ~File() {
+    if (data_)
+      UnMap();
+  }
+
   void* GetFilePionter() const {
     return data_;
   }
