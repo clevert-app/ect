@@ -23,7 +23,7 @@ if [ "$1" = build ]; then
   elif [ "$(uname | cut -d "-" -f 1) $(uname -m)" = "MINGW64_NT x86_64" ]; then
     # C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start
     # pacman -Syu --needed --noconfirm zip zstd $(echo _clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
-    export CFLAGS="$CFLAGS -march=x86-64-v3"
+    export CFLAGS="$CFLAGS " # -march=x86-64-v3
     export LDFLAGS="$LDFLAGS -static -Wl,--gc-sections -Wl,--as-needed" # static link libc++
   elif [ "$(uname) $(uname -m)" = "Darwin arm64" ]; then
     # ssh mac_m1
@@ -48,17 +48,14 @@ if [ "$1" = build ]; then
     echo "pgo not enabled"
   fi
   export CXXFLAGS="$CFLAGS"
-  [ $(command -v ccache) != "" ] && export CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache # ln -sf /media/kkocdko/KK_TMP_1/home/.cache/ccache ~/.cache/ccache
+  [ "$(command -v ccache)" != "" ] && export CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache # ln -sf /media/kkocdko/KK_TMP_1/home/.cache/ccache ~/.cache/ccache
   # > ect
   # cd ect
   find build/ -mindepth 1 -delete || true # like rm -rf build/*
   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF # ect use it's custom zlib, so link to system zlib is impossible
   cmake --build build
-  if [ -e build/ect.exe ]; then
-    llvm-objcopy --strip-all build/ect.exe
-  else
-    llvm-objcopy --strip-sections --remove-section=.note.* --remove-section=.comment build/ect
-  fi
+  llvm-objcopy --strip-all build/ect$([ -e build/ect.exe ] && echo ".exe")
+  # llvm-objcopy --strip-sections --remove-section=.note.* --remove-section=.comment build/ect
   # ldd build/ect || true
   # ls -l build/ect
   # build/ect
