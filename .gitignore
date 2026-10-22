@@ -5,6 +5,7 @@
 build
 bench_res
 bench_res_bak
+temp
 
 # macOS ancillary files
 .DS_Store

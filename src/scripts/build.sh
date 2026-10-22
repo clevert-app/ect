@@ -100,6 +100,7 @@ fi
 if [ "$1" = measure ]; then
   # === to measure the result
   cd $dist_dir
+  if false; then
   mkdir -p measure_res_bak
   res_args=""
   res_args="$res_args -o measure_res_bak/001.png -L https://user-images.githubusercontent.com/634063/202742985-bb3b3b94-8aca-404a-8d8a-fd6a6f030672.png" # github desktop screenshot with alpha
@@ -123,6 +124,7 @@ if [ "$1" = measure ]; then
     time -p taskset -c 2 ./$name -6 -gzip bench_res/005.tar.gz
   done
   exit
+  fi
 
   if [ "$2" = png ]; then
     # curl -o test_1.bak.jpeg --skip-existing -L 'https://cn.bing.com/th?id=OHR.ArtemisRocket_EN-US5256990037_UHD.jpg&rf=LaDigue_UHD.jpg&pid=hp&w=3840&h=2160&rs=1&c=4'
@@ -150,7 +152,7 @@ if [ "$1" = measure ]; then
     cp $i_apk y.apk
     check_y
     export ZIPALIGN_THREADS=4 ZIPALIGN_ZOPFLI_LEVEL=6
-    for name in zcodecs_*; do
+    for name in ect_*; do
       echo ==========
       echo [ $name ]
       time -p taskset -c 2,4,6,8 ./$name zipalign -z -f -P 4 4 $i_apk y.apk

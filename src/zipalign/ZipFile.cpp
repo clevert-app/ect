@@ -686,6 +686,7 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
     uncompressedLen = pSourceEntry->getUncompressedLen();
 
     if (pSourceEntry->isCompressed()) {
+        #ifdef NOMULTI
         void *buf = pSourceZip->uncompress(pSourceEntry);
         if (buf == NULL) {
             result = NO_MEMORY;
@@ -703,6 +704,74 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
         pEntry->setDataInfo(uncompressedLen, endPosn - startPosn,
             pSourceEntry->getCRC32(), ZipEntry::kCompressDeflated);
         free(buf);
+        #else
+        // because we only run this once, so use static vars
+        using CompressionBuffer = std::unique_ptr<unsigned char, decltype(&free)>;
+        struct CompressedEntry {
+          CompressionBuffer data{nullptr, free};
+          size_t size = 0;
+        };
+        struct CompressionSlot {
+          CompressedEntry result;
+          std::thread worker;
+          ~CompressionSlot() {
+            if (worker.joinable())
+              worker.join();
+          }
+        };
+        static int nextEntry = 0;
+        static const int threads = getEnvThreadsCount();
+        static std::unique_ptr<CompressionSlot[]> slots(new CompressionSlot[threads]);
+        static size_t head = 0, count = 0;
+        if (count == 0) {
+          nextEntry = 0;
+          while (nextEntry < pSourceZip->getNumEntries() &&
+                 pSourceZip->getEntryByIndex(nextEntry) != pSourceEntry)
+            nextEntry++;
+        }
+        while (nextEntry < pSourceZip->getNumEntries() && count < threads) {
+          const ZipEntry *entry = pSourceZip->getEntryByIndex(nextEntry++);
+          if (!entry->isCompressed())
+            continue;
+          CompressionBuffer input(
+              static_cast<unsigned char *>(pSourceZip->uncompress(entry)), free);
+          assert_or_exit(input);
+          size_t size = entry->getUncompressedLen();
+          CompressionSlot &slot = slots[(head + count) % threads];
+          slot.worker = std::thread([&slot, input = std::move(input), size]() {
+            CompressedEntry result;
+            if (size == 0) {
+              unsigned char *data =
+                  static_cast<unsigned char *>(malloc(2)); // ect has bug on empty entry
+              assert_or_exit(data);
+              data[0] = 0x03, data[1] = 0x00;
+              result.data.reset(data);
+              result.size = 2;
+            } else {
+              ZopfliOptions options;
+              ZopfliInitOptions(&options, getEnvZopfliLevel(), 0, 0);
+              unsigned char bitPointer = 0;
+              unsigned char *output = nullptr;
+              ZopfliDeflate(&options, true, input.get(), size, &bitPointer, &output,
+                            &result.size);
+              result.data.reset(output);
+            }
+            slot.result = std::move(result);
+          });
+          count++;
+        }
+        assert_or_exit(count != 0);
+        slots[head].worker.join();
+        CompressedEntry compressed = std::move(slots[head].result);
+        head = (head + 1) % threads;
+        count--;
+        assert_or_exit(compressed.data);
+        assert_or_exit(fwrite(compressed.data.get(), 1, compressed.size, mZipFp) ==
+                       compressed.size);
+        pEntry->mCDE.mGPBitFlag &= ~ZipEntry::kUsesDataDescr;
+        pEntry->setDataInfo(uncompressedLen, compressed.size, pSourceEntry->getCRC32(),
+                            ZipEntry::kCompressDeflated);
+        #endif
     } else {
         off_t copyLen = pSourceEntry->getCompressedLen();
         if ((pSourceEntry->mLFH.mGPBitFlag & ZipEntry::kUsesDataDescr) != 0)
