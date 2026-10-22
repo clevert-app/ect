@@ -740,22 +740,13 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
           CompressionSlot &slot = slots[(head + count) % threads];
           slot.worker = std::thread([&slot, input = std::move(input), size]() {
             CompressedEntry result;
-            if (size == 0) {
-              unsigned char *data =
-                  static_cast<unsigned char *>(malloc(2)); // ect has bug on empty entry
-              assert_or_exit(data);
-              data[0] = 0x03, data[1] = 0x00;
-              result.data.reset(data);
-              result.size = 2;
-            } else {
-              ZopfliOptions options;
-              ZopfliInitOptions(&options, getEnvZopfliLevel(), 0, 0);
-              unsigned char bitPointer = 0;
-              unsigned char *output = nullptr;
-              ZopfliDeflate(&options, true, input.get(), size, &bitPointer, &output,
-                            &result.size);
-              result.data.reset(output);
-            }
+            ZopfliOptions options;
+            ZopfliInitOptions(&options, getEnvZopfliLevel(), 0, 0);
+            unsigned char bitPointer = 0;
+            unsigned char *output = nullptr;
+            ZopfliDeflate(&options, true, input.get(), size, &bitPointer, &output,
+                          &result.size);
+            result.data.reset(output);
             slot.result = std::move(result);
           });
           count++;
