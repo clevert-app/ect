@@ -29,4 +29,6 @@ time_t get_file_time(const char* Infile);
 
 void set_file_time(const char* Infile, time_t otime);
 
+int get_phy_core_count();
+
 #endif /* defined(__Efficient_Compression_Tool__support__) */

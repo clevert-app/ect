@@ -1,18 +1,21 @@
+// zlialign needs android libutils, here is our compat implementation
 #ifndef ZIPALIGN_COMPAT_H_
 #define ZIPALIGN_COMPAT_H_
 #define _FILE_OFFSET_BITS 64
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
 #include <errno.h>
-#include <stdint.h>
-#include <stdio.h>
 #include <unistd.h>
 #include <zlib.h>
 #include <vector>
-#include <cstdlib>
 #include <algorithm>
 #include <future>
 #include <thread>
 #include <deque>
 #include <memory>
+#include "support.h"
 #if defined(__APPLE__) || !defined(off64_t)
 typedef off_t off64_t;
 #endif
@@ -62,12 +65,22 @@ namespace zip_archive {
   struct Reader {};
   struct Writer { virtual bool Append(uint8_t* buf, size_t buf_size) = 0; };
 }
-inline int getZopfliLevel() {
-  static const int level = []() {
+inline int getEnvZopfliLevel() {
+  static const int ret = []() {
     const char* s = getenv("ZIPALIGN_ZOPFLI_LEVEL");
-    int v = s ? strtol(s, NULL, 10) : -1;
-    return (3 <= v && v <= 9) ? v : 4;
+    int v = s ? int(strtol(s, NULL, 10)) : -1;
+    return (3 <= v && v <= 9) ? v : 4; // 3-9 , default = 4
   }();
-  return level;
+  return ret;
+}
+inline int getEnvThreadsCount() {
+  static const int ret = []() {
+    const char* s = getenv("ZIPALIGN_THREADS_COUNT");
+    if (s == NULL) return 1;
+    if (strcmp(s, "phy") == 0) return get_phy_core_count();
+    int v = int(strtol(s, NULL, 10));
+    return v == 0 ? int(std::thread::hardware_concurrency()) : v;
+  }();
+  return ret;
 }
 #endif
