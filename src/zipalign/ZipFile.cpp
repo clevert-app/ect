@@ -706,62 +706,58 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
         free(buf);
         #else
         // because we only run this once, so use static vars
-        using CompressionBuffer = std::unique_ptr<unsigned char, decltype(&free)>;
-        struct CompressedEntry {
-          CompressionBuffer data{nullptr, free};
-          size_t size = 0;
-        };
-        struct CompressionSlot {
-          CompressedEntry result;
-          std::thread worker;
-          ~CompressionSlot() {
-            if (worker.joinable())
-              worker.join();
-          }
-        };
-        static int nextEntry = 0;
-        static const int threads = getEnvThreadsCount();
-        static std::unique_ptr<CompressionSlot[]> slots(new CompressionSlot[threads]);
-        static size_t head = 0, count = 0;
-        if (count == 0) {
-          nextEntry = 0;
-          while (nextEntry < pSourceZip->getNumEntries() &&
-                 pSourceZip->getEntryByIndex(nextEntry) != pSourceEntry)
-            nextEntry++;
+        struct Pending { int idx = 0; size_t size = 0; uint8_t *data = nullptr; };
+        static Pending *pending_list = new Pending[pSourceZip->getNumEntries()];
+        static size_t pending_size = 0; // should smaller than 64 MiB size
+        const size_t pending_size_limit = 64 * 1024 * 1024; // should smaller than 64 MiB size
+        static int pending_workers_count = 0;
+        static const int max_workers_count = getEnvThreadsCount();
+        static int pending_next_idx = 0;
+        static std::mutex outer_mutex;
+        static std::condition_variable cv;
+        int current_entry_idx = getNumEntries(); // this's already written count = current index
+        assert_or_exit(pSourceEntry == pSourceZip->getEntryByIndex(current_entry_idx));
+        std::unique_lock<std::mutex> lock(outer_mutex);
+        while (true) {
+            // still has entries, workers not full, and not reach pending size limit, then spawn new worker. avoid single big entry more than 64 MiB to deadlock
+            while (pending_next_idx < pSourceZip->getNumEntries() && pending_workers_count < max_workers_count && (pending_size < pending_size_limit || pending_size == 0)) {
+                int idx = pending_next_idx;
+                pending_next_idx++;
+                const ZipEntry *entry = pSourceZip->getEntryByIndex(idx);
+                if (!entry->isCompressed()) continue; // skip directly, see the previous if branch, the "stored" entries will not enter uncompress logic here
+                size_t in_size = entry->getUncompressedLen();
+                uint8_t *in_buf = static_cast<uint8_t *>(pSourceZip->uncompress(entry));
+                assert_or_exit(in_buf != nullptr);
+                pending_size += in_size; // use in_size as placeholder
+                pending_workers_count++;
+                std::thread([idx, in_buf, in_size]() {
+                    ZopfliOptions options;
+                    ZopfliInitOptions(&options, getEnvZopfliLevel(), 0, 0);
+                    unsigned char bp = 0, *out = nullptr;
+                    size_t out_size = 0;
+                    ZopfliDeflate(&options, true, in_buf, in_size, &bp, &out, &out_size);
+                    free(in_buf);
+                    std::lock_guard<std::mutex> outer_mutex_lock_guard(outer_mutex);
+                    pending_list[idx].data = out;
+                    pending_list[idx].size = out_size;
+                    pending_size = pending_size - in_size + out_size; // replace in_size placeholder to actural out_size
+                    pending_workers_count--;
+                    cv.notify_one();
+                }).detach();
+            }
+            // queue head entry is already done, then jump out and use it
+            if (pending_list[current_entry_idx].data != nullptr) break;
+            // otherwize, wait until any worker to wake up this
+            cv.wait(lock);
         }
-        while (nextEntry < pSourceZip->getNumEntries() && count < threads) {
-          const ZipEntry *entry = pSourceZip->getEntryByIndex(nextEntry++);
-          if (!entry->isCompressed())
-            continue;
-          CompressionBuffer input(
-              static_cast<unsigned char *>(pSourceZip->uncompress(entry)), free);
-          assert_or_exit(input);
-          size_t size = entry->getUncompressedLen();
-          CompressionSlot &slot = slots[(head + count) % threads];
-          slot.worker = std::thread([&slot, input = std::move(input), size]() {
-            CompressedEntry result;
-            ZopfliOptions options;
-            ZopfliInitOptions(&options, getEnvZopfliLevel(), 0, 0);
-            unsigned char bitPointer = 0;
-            unsigned char *output = nullptr;
-            ZopfliDeflate(&options, true, input.get(), size, &bitPointer, &output,
-                          &result.size);
-            result.data.reset(output);
-            slot.result = std::move(result);
-          });
-          count++;
-        }
-        assert_or_exit(count != 0);
-        slots[head].worker.join();
-        CompressedEntry compressed = std::move(slots[head].result);
-        head = (head + 1) % threads;
-        count--;
-        assert_or_exit(compressed.data);
-        assert_or_exit(fwrite(compressed.data.get(), 1, compressed.size, mZipFp) ==
-                       compressed.size);
+        Pending &finished = pending_list[current_entry_idx];
+        pending_size -= finished.size; // release the pending limit
+        lock.unlock();
+        assert_or_exit(finished.data != nullptr && finished.size != 0); // ensure is finished
+        assert_or_exit(fwrite(finished.data, 1, finished.size, mZipFp) == finished.size);
         pEntry->mCDE.mGPBitFlag &= ~ZipEntry::kUsesDataDescr;
-        pEntry->setDataInfo(uncompressedLen, compressed.size, pSourceEntry->getCRC32(),
-                            ZipEntry::kCompressDeflated);
+        pEntry->setDataInfo(uncompressedLen, finished.size, pSourceEntry->getCRC32(), ZipEntry::kCompressDeflated);
+        free(finished.data);
         #endif
     } else {
         off_t copyLen = pSourceEntry->getCompressedLen();
