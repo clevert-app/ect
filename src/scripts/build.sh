@@ -155,7 +155,7 @@ if [ "$1" = measure ]; then
     for name in ect_*; do
       echo ==========
       echo [ $name ]
-      time -p taskset -c 2,4,6,8 ./$name zipalign -z -f -P 4 4 $i_apk y.apk
+      time -p taskset -c 2,4,6,8 ./$name --as zipalign -z -f -P 4 4 $i_apk y.apk
       check_y
     done
     exit
