@@ -46,6 +46,9 @@ void usage(void)
     fprintf(stderr, "  -P <pagesize_kb>: Align uncompressed .so files to the specified\n");
     fprintf(stderr, "                    page size. Valid values for <pagesize_kb> are 4, 16\n");
     fprintf(stderr, "                    and 64. '-P' cannot be used in combination with '-p'.\n");
+    fprintf(stderr, "To use with multi thread and modify zopfli level, try:\n");
+    fprintf(stderr, "$ ZIPALIGN_THREADS_COUNT=4 ZIPALIGN_ZOPFLI_LEVEL=6 ect --as zipalign -z -f -P 4 4 input.apk output.apk\n");
+    fprintf(stderr, "The ZIPALIGN_THREADS_COUNT can be 0 (all threads), number, or \"phy\".\n");
 }
 
 
