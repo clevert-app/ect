@@ -378,6 +378,12 @@ static void GetBestLengths2(const unsigned char* in, size_t instart, size_t inen
           unsigned dist = *mp++;
           float price2 = price + disttable[dist];
           dist <<=9;
+          // disable auto vectorize here, it cause performance regression
+          #if defined(__clang__)
+          #pragma clang loop vectorize(disable)
+          #elif defined(__GNUC__) && (__GNUC__ >= 14)
+          #pragma GCC novector
+          #endif
           for (; curr <= len; curr++) {
             float x = price2 + litlentable[curr];
             if (x < costs[j + curr]){
@@ -649,6 +655,12 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
             curr = len + 1;
             continue;
           }
+          // disable auto vectorize here, it cause performance regression
+          #if defined(__clang__)
+          #pragma clang loop vectorize(disable)
+          #elif defined(__GNUC__) && (__GNUC__ >= 14)
+          #pragma GCC novector
+          #endif
           for (; curr <= len; curr++) {
             float x = price2 + litlentable[curr];
             if (x < costs[j + curr]){
