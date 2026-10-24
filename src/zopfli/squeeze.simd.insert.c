@@ -37,6 +37,10 @@ if (curr + 7 <= len) {
     curr = len + 1;
   }
 }
+#endif
+
+// for x86_64-v3, both __AVX2__ and __SSE4_2__ will be enabled
+#if defined(__SSE4_2__)
 if (curr + 3 <= len) {
   const __m128 prices = _mm_set1_ps(price2);
   for (; curr + 3 <= len; curr += 4) {
@@ -54,33 +58,31 @@ if (curr + 3 <= len) {
 }
 #endif
 
-// > happyarts-neon
+// use neon
 #if defined(__aarch64__)
 if (curr + 3 <= len) {
-  const float32x4_t p = vdupq_n_f32(price2);
-  uint32x4_t lengths = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
+  const float32x4_t prices = vdupq_n_f32(price2);
   for (; curr + 3 <= len; curr += 4) {
-    float32x4_t x = vaddq_f32(p, vld1q_f32(&litlentable[curr]));
-    float32x4_t old = vld1q_f32(&costs[j + curr]);
-    uint32x4_t better = vcltq_f32(x, old);
+    float32x4_t candidate = vaddq_f32(prices, vld1q_f32(&litlentable[curr]));
+    float32x4_t previous = vld1q_f32(&costs[j + curr]);
+    uint32x4_t better = vcltq_f32(candidate, previous);
     if (vmaxvq_u32(better)) {
-      vst1q_f32(&costs[j + curr], vbslq_f32(better, x, old));
+      uint32x4_t lengths = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
+      vst1q_f32(&costs[j + curr], vbslq_f32(better, candidate, previous));
       vst1q_u32(&length_array[j + curr], vbslq_u32(better, lengths, vld1q_u32(&length_array[j + curr])));
     }
-    lengths = vaddq_u32(lengths, vdupq_n_u32(4));
   }
-}
-#endif
-
-// > yumeyao-neon
-#if defined(__aarch64__) && defined(USE_YUMEYAO_NEON)
-for (; curr + 4 < len; curr += 4) {
-  float32x4_t x4 = vaddq_f32(vdupq_n_f32(price2), vld1q_f32(&litlentable[curr]));
-  float32x4_t vcost = vld1q_f32(&costs[j + curr]);
-  vst1q_f32(&costs[j + curr], vminq_f32(x4, vcost));
-  uint32x4_t vlength = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
-  uint32x4_t cmp_mask = vcltq_f32(x4, vcost);
-  vlength = vbslq_u32(cmp_mask, vlength, vld1q_u32(&length_array[j + curr]));
-  vst1q_u32(&length_array[j + curr], vlength);
+  if (curr <= len) {
+    curr = len - 3;
+    float32x4_t candidate = vaddq_f32(prices, vld1q_f32(&litlentable[curr]));
+    float32x4_t previous = vld1q_f32(&costs[j + curr]);
+    uint32x4_t better = vcltq_f32(candidate, previous);
+    if (vmaxvq_u32(better)) {
+      uint32x4_t lengths = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
+      vst1q_f32(&costs[j + curr], vbslq_f32(better, candidate, previous));
+      vst1q_u32(&length_array[j + curr], vbslq_u32(better, lengths, vld1q_u32(&length_array[j + curr])));
+    }
+    curr = len + 1;
+  }
 }
 #endif
