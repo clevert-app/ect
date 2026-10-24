@@ -16,7 +16,7 @@ if [ "$1" = build ]; then
     # curl -O -L https://apt.llvm.org/llvm.sh # supports debian 13 and more
     # bash llvm.sh 23 -m https://mirrors.nju.edu.cn/llvm-apt ; apt-get purge --autoremove lldb-23 clangd-23 # or, only install clang-23 lld-23
     export PATH="/usr/lib/llvm-23/bin:$PATH"
-    export CFLAGS="$CFLAGS " # -march=x86-64-v3 # without v3 may be faster?
+    export CFLAGS="$CFLAGS -march=x86-64-v3" # -march=x86-64-v3 # without v3 may be faster?
     export LDFLAGS="$LDFLAGS -Wl,--gc-sections"
   elif [ "$(uname | cut -d "-" -f 1) $(uname -m)" = "MINGW64_NT x86_64" ]; then
     # C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start
@@ -114,7 +114,9 @@ if [ "$1" = measure ]; then
       rm -rf $build_dir/pgo/res
       cp -a $build_dir/pgo/res_bak $build_dir/pgo/res
       time -p $name -6 $build_dir/pgo/res/001.png # taskset -c 2,4,6,8
+      sha1sum $build_dir/pgo/res/001.png
       time -p $name -4 $build_dir/pgo/res/003.png
+      sha1sum $build_dir/pgo/res/003.png
     done
     exit
   fi
@@ -130,7 +132,7 @@ if [ "$1" = measure ]; then
     check_y() {
       du -s y.apk
       rm -rf y
-      unzip -q -d y y.apk
+      unzip -q -o -d y y.apk
       find y -type f -exec sha1sum {} + | sort -k 2 | sha1sum
     }
     cp $i_apk y.apk

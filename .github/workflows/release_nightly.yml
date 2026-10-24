@@ -75,7 +75,7 @@ jobs:
         shell: C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start -use-full-path -eo pipefail {0}
         run: |
           # install toolchain
-          pacman -Syu --ignore msys2-runtime,bash --needed --noconfirm zip zstd $(echo _clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
+          pacman -Syu --ignore msys2-runtime,bash,filesystem,pacman --needed --noconfirm zip zstd $(echo _clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
           # build and pack
           cd src
           scripts/build.sh build
