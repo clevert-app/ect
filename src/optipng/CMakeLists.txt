@@ -29,6 +29,7 @@ if(NOT MSVC)
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-null-pointer-subtraction")
 endif()
 
+set(SKIP_INSTALL_ALL ON)
 add_subdirectory(../libpng libpng EXCLUDE_FROM_ALL)
 target_include_directories(png_static PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(optipng

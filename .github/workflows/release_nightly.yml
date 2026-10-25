@@ -77,7 +77,7 @@ jobs:
         shell: C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start -use-full-path -eo pipefail {0}
         run: |
           # install toolchain
-          pacman --noconfirm -Sy --needed zip zstd ccache make cmake ninja nasm
+          pacman --noconfirm -Sy --needed zip zstd ccache make cmake ninja nasm # without -u is dangerous, only for ci
           pacman --noconfirm -S mingw-w64-clang-x86_64-clang # must be latest clang
           # build and pack
           cd src

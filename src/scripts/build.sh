@@ -17,11 +17,11 @@ if [ "$1" = build ]; then
     # bash llvm.sh 23 -m https://mirrors.nju.edu.cn/llvm-apt ; apt-get purge --autoremove lldb-23 clangd-23 # or, only install clang-23 lld-23
     export PATH="/usr/lib/llvm-23/bin:$PATH"
     export CFLAGS="$CFLAGS -march=x86-64-v3" # -march=x86-64-v3 # without v3 may be faster?
-    export LDFLAGS="$LDFLAGS -Wl,--gc-sections"
+    export LDFLAGS="$LDFLAGS -Wl,--gc-sections" # todo: fix ubuntu still link to system zlib
   elif [ "$(uname | cut -d "-" -f 1) $(uname -m)" = "MINGW64_NT x86_64" ]; then
     # C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start
     # pacman -Syu zip zstd ccache make cmake ninja nasm mingw-w64-clang-x86_64-clang
-    export CFLAGS="$CFLAGS " # -march=x86-64-v3
+    export CFLAGS="$CFLAGS -march=x86-64-v3" # -march=x86-64-v3
     export LDFLAGS="$LDFLAGS -static -Wl,--gc-sections -Wl,--as-needed" # static link libc++
   elif [ "$(uname) $(uname -m)" = "Darwin arm64" ]; then
     # brew install llvm@23 lld@23 cmake ninja nasm
@@ -36,10 +36,10 @@ if [ "$1" = build ]; then
   fi
   if [ "$2" = profile-generate ]; then
     # export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-dir=$(pwd)/build/pgo -fprofile-generate" # gcc
-    export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-generate=$(pwd)/build/pgo"
+    export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-generate"
   elif [ "$2" = profile-use ]; then
     # export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-dir=$(pwd)/pgo -fprofile-use" # gcc
-    export CFLAGS="$CFLAGS -fprofile-use=$(pwd)/build/pgo"
+    export CFLAGS="$CFLAGS -fprofile-use=$(cygpath -m "$PWD" 2> /dev/null || pwd)/build/pgo"
     llvm-profdata merge -output=build/pgo/default.profdata build/pgo/*.profraw
   else
     echo "pgo not enabled"
@@ -51,10 +51,6 @@ if [ "$1" = build ]; then
   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF # ect use it's custom zlib, so link to system zlib is impossible
   cmake --build build
   llvm-objcopy --strip-all build/ect$([ -e build/ect.exe ] && echo ".exe")
-  # llvm-objcopy --strip-sections --remove-section=.note.* --remove-section=.comment build/ect
-  # ldd build/ect || true
-  # ls -l build/ect
-  # build/ect
   exit
 fi
 
@@ -62,21 +58,19 @@ if [ "$1" = profile ]; then
   # === run and collect performance profile
   res_bak=build/pgo/res_bak res=build/pgo/res
   mkdir -p $res_bak
-  res_args=""
-  res_args="$res_args -o $res_bak/001.png -L https://user-images.githubusercontent.com/634063/202742985-bb3b3b94-8aca-404a-8d8a-fd6a6f030672.png" # github desktop screenshot with alpha
-  res_args="$res_args -o $res_bak/002.png -L https://github.com/libjxl/testdata/raw/73695d303670c90e4d506ea89d9901b081385089/jxl/flower/flower.png" # jxl flower big size test file
-  res_args="$res_args -o $res_bak/003.png -L https://github.com/libjxl/testdata/raw/73695d303670c90e4d506ea89d9901b081385089/jxl/hdr_room.png" # jxl hdr room test file
-  res_args="$res_args -o $res_bak/004.apk -L https://github.com/moonlight-stream/moonlight-android/releases/download/v12.2/app-nonRoot-release.apk" # moonlight apk
-  # res_args="$res_args -o $res_bak/006.zip -L https://mattmahoney.net/dc/enwik8.zip" # enwik8
-  [ -e $res_bak/001.png ] || curl --parallel $res_args
-  [ -e $res_bak/005.tar ] || tar -cf $res_bak/005.tar libpng/*.txt libpng/contrib/testpngs/*.png libpng/contrib/libtests libpng/png.* # source code and some png
-  [ -e $res_bak/005.tar.gz ] || gzip -1 -k $res_bak/005.tar
+  add_res() { t=$res_bak/$1 ; [ "$(sha1sum $t | cut -d " " -f 1)" = $2 ] && return ; rm -rf $t ; curl -o $t -L "$3" ; [ "$(sha1sum $t | cut -d " " -f 1)" = $2 ] ; } # download if not match, then check again
+  add_res 001.png c3ed16adab182be08d9482d884f9cf6019aaf9d1 https://user-images.githubusercontent.com/634063/202742985-bb3b3b94-8aca-404a-8d8a-fd6a6f030672.png # github desktop screenshot with alpha
+  add_res 002.png c918ba3014052accbe558613c20b15ee6cd201d0 https://github.com/libjxl/testdata/raw/73695d303670c90e4d506ea89d9901b081385089/jxl/flower/flower.png # jxl flower big size test file
+  add_res 003.png 227bbba753bbea386dfb1d7cb29a6ea0421ce6fc https://github.com/libjxl/testdata/raw/73695d303670c90e4d506ea89d9901b081385089/jxl/hdr_room.png # jxl hdr room test file
+  add_res 004.apk 04c485c24e5078550a577ba7dd7105f9016d7e14 https://github.com/moonlight-stream/moonlight-android/releases/download/v12.2/app-nonRoot-release.apk # moonlight apk
+  add_res 005.tgz 02e2546fde63f7ced89b74f0c76771cbe7b1845e https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.59.tar.gz # libpng source code
+  add_res 006.zip d856b1ccd937c51aeb9c342e47666fb8c38e7e72 https://mattmahoney.net/dc/enwik8.zip # enwik8
   # cp giflib/pic/fire.gif $res_bak/006.gif
   rm -rf build/pgo/default.profdata build/pgo/*.profraw
   for i in 1 2; do # small files twice is enough
     rm -rf $res
     cp -a $res_bak $res
-    export LLVM_PROFILE_FILE=build/pgo/$i-%m.profraw
+    export LLVM_PROFILE_FILE=build/pgo/$i.%m.profraw
     # profile cwebp -lossless pgo/res/003.png -o pgo/res/003.webp # to webp lossless
     # profile cwebp -lossless -sharp_yuv -m 6 pgo/res/001.png -o pgo/res/001.webp
     # profile cwebp -crop 100 200 1920 1080 pgo/res/002.png -o pgo/res/002.1.webp # to webp lossy
@@ -94,8 +88,8 @@ if [ "$1" = profile ]; then
     # profile cjpegli -q 60 pgo/res/002.png pgo/res/002.jpegli.jpeg
     # profile cjpegli -q 85 pgo/res/003.png pgo/res/003.jpegli.jpeg
     # profile djpegli pgo/res/002.jpegli.jpeg pgo/res/002.jpegli.png
-    time -p build/ect -7 -gzip $res/005.tar.gz # gzip decompress + compress
-    time -p build/ect -3 -zip $res/005.tar
+    time -p build/ect -7 -gzip $res/005.tgz # gzip decompress + compress
+    # time -p build/ect -3 -zip $res/006.zip
     time -p build/ect -6 $res/001.png $res/003.png # high level recompress
     # time -p build/ect -9 $res/002.3.png # very high level recompress
     ZIPALIGN_THREADS_COUNT=1 ZIPALIGN_ZOPFLI_LEVEL=6 time -p build/ect --as zipalign -z -f -P 4 4 $res/004.apk $res/004.zipalign.apk
@@ -145,6 +139,10 @@ if [ "$1" = measure ]; then
       check_y
     done
     rm -rf /tmp/ect_apk_test
+    exit
+  fi
+  if [ "$2" = full ]; then
+    # what
     exit
   fi
 fi

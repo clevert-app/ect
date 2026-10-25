@@ -14,7 +14,7 @@ Shell script `./scripts/build.sh` patches code then build the multi-call tool.
 
 For windows we has an pc `klc2`, it use native ssh so `ssh klc2` will use `cmd.exe` as shell, do not do that. Instead, start a persistent ssh session with `ssh klc2 -t "C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start"`, then run `cd /c/misc/code/ect/src`, and interact with the tty.
 
-To sync dir into remote, we need `printf '#!/usr/bin/sh\nset -o pipefail\n/usr/bin/rsync "$@" | /usr/bin/cat\n' > /tmp/rsync-wrapper.sh` inside msys2 shell, then, we can use `rsync --quiet --checksum -avz --delete --filter ":- .gitignore" --exclude src/build --rsync-path="C:/msys64/usr/bin/bash.exe /tmp/rsync-wrapper.sh" ~/misc/code/ect/ klc2:/c/misc/code/ect/`.
+To sync dir into remote, we need `printf '#!/usr/bin/sh\nset -o pipefail\n/usr/bin/rsync "$@" | /usr/bin/cat\n' > /opt/rsync-wrapper.sh` inside msys2 shell, then, we can use `rsync --quiet --checksum -avz --delete --filter ":- .gitignore" --exclude src/build --rsync-path="C:/msys64/usr/bin/bash.exe /opt/rsync-wrapper.sh" ~/misc/code/ect/ klc2:/c/misc/code/ect/`.
 
 #### Mac tips
 

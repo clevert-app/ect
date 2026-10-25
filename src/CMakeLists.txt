@@ -132,10 +132,6 @@ endif()
 # Enable ZLIB_CONST for everything
 add_definitions(-DZLIB_CONST)
 
-# Ensure that zlib target points to our custom zlib zlib
-set(ZLIB_ROOT "zlib/")
-find_package(ZLIB)
-
 option(ECT_MULTITHREADING "Enable multithreaded processing support" ON)
 option(ECT_MP3_SUPPORT "Enable MP3 support (not currently working)" OFF)
 option(ECT_ZIPALIGN_SUPPORT "Enable zipalign support" ON)
@@ -144,14 +140,11 @@ add_subdirectory(leanify EXCLUDE_FROM_ALL)
 add_subdirectory(lodepng EXCLUDE_FROM_ALL)
 add_subdirectory(miniz EXCLUDE_FROM_ALL)
 add_subdirectory(zlib EXCLUDE_FROM_ALL)
-# Point any later find_package(ZLIB) call (e.g. from the bundled libpng, via
-# optipng below) at the zlib target we just configured above, instead of
-# letting it independently resolve a different system/vcpkg copy. Two zlibs
-# ending up linked into the same binary means two definitions of the same
-# symbols (inflate, deflate, crc32, ...); GNU ld silently keeps the first one
-# it sees, but stricter linkers (e.g. MSVC's link.exe) treat that as a hard
-# "already defined" error.
-set(ZLIB_LIBRARY ${CMAKE_CURRENT_BINARY_DIR}/zlib/${CMAKE_STATIC_LIBRARY_PREFIX}zlib${CMAKE_STATIC_LIBRARY_SUFFIX})
+# Add alias, point zlib to our own one, avoid use system/vcpkg one without our opti
+add_library(ZLIB::ZLIB ALIAS zlib)
+target_include_directories(zlib INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
+set(ZLIB_LIBRARY zlib::zlib)
+set(ZLIB_LIBRARIES zlib::zlib)
 set(ZLIB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
 add_subdirectory(zopfli EXCLUDE_FROM_ALL)
 add_subdirectory(optipng EXCLUDE_FROM_ALL)
