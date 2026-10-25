@@ -37,7 +37,7 @@ jobs:
           tag_name: "v0.0.0-alpha"
           files: ${{ env.ASSET_NAME }}
   mac-arm64:
-    runs-on: warp-macos-26-arm64-6x # macos-26 # warp-macos-26-arm64-6x
+    runs-on: blacksmith-6vcpu-macos-26 # macos-26 | blacksmith-6vcpu-macos-26 | warp-macos-26-arm64-6x
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -46,7 +46,9 @@ jobs:
       - name: Build
         run: |
           # install toolchain
-          brew install llvm@23 lld@23 cmake ninja nasm
+          export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_UPGRADE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+          rm -rf "$(brew --cache)/api" # much faster than brew update
+          GITHUB_ACTIONS="" brew install llvm@23 lld@23 cmake ninja nasm || true
           # build and pack
           cd src
           scripts/build.sh build
@@ -75,7 +77,8 @@ jobs:
         shell: C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start -use-full-path -eo pipefail {0}
         run: |
           # install toolchain
-          pacman -Syu --ignore msys2-runtime,bash,filesystem,pacman --needed --noconfirm zip zstd $(echo _clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
+          pacman --noconfirm -Sy --needed zip zstd ccache make cmake ninja nasm
+          pacman --noconfirm -S mingw-w64-clang-x86_64-clang # must be latest clang
           # build and pack
           cd src
           scripts/build.sh build

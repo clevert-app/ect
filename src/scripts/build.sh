@@ -20,7 +20,7 @@ if [ "$1" = build ]; then
     export LDFLAGS="$LDFLAGS -Wl,--gc-sections"
   elif [ "$(uname | cut -d "-" -f 1) $(uname -m)" = "MINGW64_NT x86_64" ]; then
     # C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start
-    # pacman -Syu --needed --noconfirm zip zstd $(echo _clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
+    # pacman -Syu zip zstd ccache make cmake ninja nasm mingw-w64-clang-x86_64-clang
     export CFLAGS="$CFLAGS " # -march=x86-64-v3
     export LDFLAGS="$LDFLAGS -static -Wl,--gc-sections -Wl,--as-needed" # static link libc++
   elif [ "$(uname) $(uname -m)" = "Darwin arm64" ]; then
