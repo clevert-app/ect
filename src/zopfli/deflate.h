@@ -56,6 +56,11 @@ void ZopfliDeflate(const ZopfliOptions* options, int final,
                    const unsigned char* in, size_t insize,
                    unsigned char* bp, unsigned char** out, size_t* outsize);
 
+void ZopfliDeflatePart(const ZopfliOptions* options, int final,
+                        const unsigned char* in, size_t instart, size_t inend,
+                        unsigned char* bp, unsigned char** out, size_t* outsize,
+                        unsigned char* costmodelnotinited);
+
 /*
 Calculates block size in bits.
 litlens: lz77 lit/lengths

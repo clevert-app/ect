@@ -24,10 +24,15 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "zopfli.h"
 #include "../zlib/zlib.h"
 #include "deflate.h"
+#include "util.h"
 #include "zopfli.h"
 #include "zlib_container.h"
 #include "../main.h"
 #include <time.h>
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #define ZOPFLI_APPEND_DATA(/* T */ value, /* T** */ data, /* size_t* */ size) {\
 (*data)[(*size)] = (value);\
@@ -304,6 +309,62 @@ int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, u
 
   free(out);
   return EXIT_SUCCESS;
+}
+
+int ZopfliGzipStream(unsigned mode) {
+#ifdef _WIN32
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1 ||
+      _setmode(_fileno(stdout), _O_BINARY) == -1) return 1;
+#endif
+  const unsigned char header[] = {31, 139, 8, 0, 0, 0, 0, 0, 2, 3};
+  if (fwrite(header, 1, sizeof(header), stdout) != sizeof(header)) return 1;
+  if (mode == 1) exit(1); // do not use zlib, always zopfli
+  if (mode % 10000 < 2) mode += 2 - mode % 10000;
+  ZopfliOptions options;
+  ZopfliInitOptions(&options, mode, 0, 0);
+  size_t blocksize = ZOPFLI_MASTER_BLOCK_SIZE;
+  if (options.numiterations == 1) blocksize /= 5;
+  std::vector<unsigned char> in(ZOPFLI_WINDOW_SIZE + blocksize + 1 + 16);
+  unsigned char* out = nullptr;
+  size_t outsize = 0;
+  unsigned char bp = 0;
+  unsigned char costmodelnotinited = 1;
+  size_t history = 0, pending = 0;
+  uint32_t crc = 0, total = 0;
+  int result = 1;
+  for (;;) {
+    size_t size = pending + fread(in.data() + history + pending, 1, blocksize + 1 - pending, stdin);
+    if (ferror(stdin)) break;
+    bool final = size <= blocksize;
+    if (!final) size = blocksize;
+    crc = crc32(crc, in.data() + history, size);
+    total += size;
+    if (size) {
+      ZopfliDeflatePart(&options, final, in.data(), history, history + size,
+                        &bp, &out, &outsize, &costmodelnotinited);
+    } else {
+      ZopfliDeflate(&options, 1, in.data(), 0, &bp, &out, &outsize);
+    }
+    size_t written = outsize - (!final && bp != 0);
+    if (fwrite(out, 1, written, stdout) != written) break;
+    if (final) {
+      unsigned char trailer[8];
+      for (unsigned byte = 0; byte < 4; byte++) {
+        trailer[byte] = crc >> (byte * 8);
+        trailer[byte + 4] = total >> (byte * 8);
+      }
+      result = fwrite(trailer, 1, sizeof(trailer), stdout) != sizeof(trailer);
+      break;
+    }
+    if (bp) out[0] = out[outsize - 1];
+    outsize = bp != 0;
+    size_t end = history + size;
+    history = end < ZOPFLI_WINDOW_SIZE ? end : ZOPFLI_WINDOW_SIZE;
+    memmove(in.data(), in.data() + end - history, history + 1);
+    pending = 1;
+  }
+  free(out);
+  return fflush(stdout) == 0 ? result : 1;
 }
 
 void ZopfliBuffer(unsigned mode, unsigned multithreading, const unsigned char* in, size_t insize, unsigned char** out, size_t* outsize) {

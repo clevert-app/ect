@@ -59,7 +59,7 @@ static void Usage() {
             " -recurse          Recursively search directories\n"
 #endif
             " -zip              Compress file(s) with ZIP algorithm\n"
-            " -gzip             Compress file(s) with GZIP algorithm\n"
+            " -gzip             Compress file(s) with GZIP algorithm, can use stdin stdout\n"
             " -quiet            Print only error messages\n"
             " -help             Print this help\n"
             " -keep             Keep modification time\n"
@@ -657,6 +657,9 @@ int main(int argc, char *argv_raw[]) {
         }
         if(Options.Reuse){
             Options.Allfilters = 0;
+        }
+        if (Options.Gzip && !files) {
+            return ZopfliGzipStream(Options.Mode); // stdin stdout, ignore multi thread block support
         }
         if(Options.Zip && files){
             error |= zipHandler(args, argv, files, Options);
