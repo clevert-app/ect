@@ -1346,11 +1346,23 @@ previous bytes are used as the initial dictionary for LZ77.
 This function will usually output multiple deflate blocks. If final is 1, then
 the final bit will be set on the last block.
 */
-static void ZopfliDeflatePart(const ZopfliOptions* options, int final,
-                       const unsigned char* in, size_t instart, size_t inend,
-                       unsigned char* bp, unsigned char** out,
-                       size_t* outsize, unsigned char* costmodelnotinited, unsigned char twiceMode, ZopfliLZ77Store* twiceStore) {
-  DeflateSplittingFirst(options, final, in, instart, inend, bp, out, outsize, costmodelnotinited, twiceMode, twiceStore);
+void ZopfliDeflatePart(const ZopfliOptions* options, int final,
+                        const unsigned char* in, size_t instart, size_t inend,
+                        unsigned char* bp, unsigned char** out, size_t* outsize,
+                        unsigned char* costmodelnotinited) {
+  ZopfliLZ77Store store;
+  ZopfliInitLZ77Store(&store);
+  if (!options->twice) {
+    DeflateSplittingFirst(options, final, in, instart, inend, bp, out, outsize, costmodelnotinited, 0, &store);
+  } else {
+    unsigned char cache = *costmodelnotinited;
+    DeflateSplittingFirst(options, final, in, instart, inend, bp, out, outsize, costmodelnotinited, 1, &store);
+    for (unsigned iteration = 0; iteration < options->twice; iteration++) {
+      *costmodelnotinited = cache;
+      DeflateSplittingFirst(options, final, in, instart, inend, bp, out, outsize, costmodelnotinited,
+                        2 + (iteration != options->twice - 1), &store);
+    }
+  }
 }
 
 /*TODO: in needs to be alloc'd 8 bytes past inend. This may cause crashes if code is modified and nonstandard alloc function is used for allocation of in*/
@@ -1385,19 +1397,7 @@ void ZopfliDeflate(const ZopfliOptions* options, int final,
     int masterfinal = (i + msize >= insize);
     int final2 = final && masterfinal;
     size_t size = masterfinal ? insize - i : msize;
-    ZopfliLZ77Store lf;
-    ZopfliInitLZ77Store(&lf);
-    if (!options->twice){
-      ZopfliDeflatePart(options, final2, in, i, i + size, bp, out, outsize, &costmodelnotinited, 0, &lf);
-    }
-    else{
-      unsigned char cache = costmodelnotinited;
-      ZopfliDeflatePart(options, final2, in, i, i + size, bp, out, outsize, &costmodelnotinited, 1, &lf);
-      for (unsigned it = 0; it < options->twice; it++) {
-        costmodelnotinited = cache;
-        ZopfliDeflatePart(options, final2, in, i, i + size, bp, out, outsize, &costmodelnotinited, 2 + (it != options->twice - 1), &lf);
-      }
-    }
+    ZopfliDeflatePart(options, final2, in, i, i + size, bp, out, outsize, &costmodelnotinited);
     i += size;
   }
 #endif
