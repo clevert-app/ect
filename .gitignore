@@ -10,6 +10,7 @@ src/third_party/jxl
 src/third_party/libpng
 src/third_party/miniz
 google-zopfli
+inflate_benchmark.cpp
 
 # macOS ancillary files
 .DS_Store
