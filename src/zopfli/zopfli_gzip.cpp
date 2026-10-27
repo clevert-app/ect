@@ -23,7 +23,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 
 #include "zopfli.h"
 #include "zopfli_gzip.h"
-#include "../zlib/zlib.h"
+#include "zlib.h"
 #include "deflate.h"
 #include "util.h"
 #include "zopfli.h"
@@ -251,16 +251,21 @@ static void LoadFile(const char* filename,
 /*
  Saves a file from a memory array, overwriting the file if it existed.
  */
-static void SaveFile(const char* filename,
+static int SaveFile(const char* filename,
                      const unsigned char* in, size_t insize) {
   FILE* file = fopen(filename, "wb");
   if (!file){
     fprintf(stderr, "Can't write to file %s\n", filename);
+    return EXIT_FAILURE;
   }
-  else {
-    fwrite((char*)in, 1, insize, file);
-    fclose(file);
+  int result = fwrite(in, 1, insize, file) == insize ? EXIT_SUCCESS : EXIT_FAILURE;
+  if (fclose(file) != 0) {
+    result = EXIT_FAILURE;
   }
+  if (result != EXIT_SUCCESS) {
+    fprintf(stderr, "Can't write to file %s\n", filename);
+  }
+  return result;
 }
 
 /*
@@ -294,10 +299,10 @@ int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, u
   }
   free(in);
 
-  SaveFile(outfilename, out, outsize);
+  int result = SaveFile(outfilename, out, outsize);
 
   free(out);
-  return EXIT_SUCCESS;
+  return result;
 }
 
 int ZopfliGzipStream(unsigned mode, FILE *fd_in, FILE *fd_out) {
@@ -367,4 +372,3 @@ void ZopfliBuffer(unsigned mode, unsigned multithreading, const unsigned char* i
   unsigned char bp = 0;
   ZopfliDeflate(&options, 1, in, insize, &bp, out, outsize);
 }
-

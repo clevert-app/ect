@@ -355,7 +355,7 @@ static void LossyOptimizeTransparent(lodepng::State* inputstate, unsigned char* 
 // Tries to optimize given a single PNG filter strategy.
 // Returns 0 if ok, other value for error
 static unsigned TryOptimize(unsigned char* image, size_t imagesize, unsigned w, unsigned h, bool bit16, const lodepng::State& inputstate,
-                            const ZopfliPNGOptions* png_options, std::vector<unsigned char>* out, int best_filter, std::vector<unsigned char> filters, unsigned palette_filter) {
+                            const ZopfliPNGOptions* png_options, std::vector<unsigned char> &out, int best_filter, std::vector<unsigned char> filters, unsigned palette_filter) {
   lodepng::State state;
   state.encoder.zlibsettings.custom_deflate = CustomPNGDeflate;
   state.encoder.zlibsettings.custom_context = png_options;
@@ -381,7 +381,7 @@ static unsigned TryOptimize(unsigned char* image, size_t imagesize, unsigned w, 
   LodePNGPaletteSettings p;
   p.order = LPOS_NONE;
   state.div = png_options->Mode == 2 ? 6 : png_options->Mode < 8 ? 3 : 2;
-  unsigned error = lodepng::encode(*out, image, imagesize, w, h, state, p);
+  unsigned error = lodepng::encode(out, image, imagesize, w, h, state, p);
   LodePNGColorMode ref_color;
 
   // No need for palette sort or compressing without palette when reusing color.
@@ -419,8 +419,8 @@ static unsigned TryOptimize(unsigned char* image, size_t imagesize, unsigned w, 
             lodepng::encode(out2, image, imagesize, w, h, state, p);
             p._first = 0;
 
-            if (out2.size() < out->size() && !state.note){
-              out->swap(out2);
+            if (out2.size() < out.size() && !state.note){
+              out.swap(out2);
             }
             out2.clear();
             if (++tries == palette_filter){
@@ -434,7 +434,7 @@ static unsigned TryOptimize(unsigned char* image, size_t imagesize, unsigned w, 
 
   // For very small output, also try without palette, it may be smaller thanks
   // to no palette storage overhead.
-  unsigned long testboth = out->size();
+  unsigned long testboth = out.size();
   if (!error && testboth < 3800 && w * h < 100000 && state.out_mode.colortype == LCT_PALETTE) {
     LodePNGColorMode& color = ref_color;
     unsigned ux = color.palettesize;
@@ -463,8 +463,8 @@ static unsigned TryOptimize(unsigned char* image, size_t imagesize, unsigned w, 
         state.info_png.color.colortype = has_alpha ? LCT_RGBA : LCT_RGB;
       }
       error = lodepng::encode(out2, image, imagesize, w, h, state, p);
-      if (out2.size() < out->size()){
-        out->swap(out2);
+      if (out2.size() < out.size()){
+        out.swap(out2);
       }
 
     }
@@ -477,7 +477,7 @@ static unsigned TryOptimize(unsigned char* image, size_t imagesize, unsigned w, 
   return error;
 }
 
-static unsigned ZopfliPNGOptimize(const char * Infile, const std::vector<unsigned char>& origpng, const ZopfliPNGOptions& png_options, std::vector<unsigned char>* resultpng, int best_filter,
+static unsigned ZopfliPNGOptimize(const std::vector<unsigned char>& origpng, const ZopfliPNGOptions& png_options, std::vector<unsigned char> &resultpng, int best_filter,
                                   std::vector<unsigned char> filters, unsigned palette_filter) {
   unsigned char* image = 0;
   size_t imagesize = 0;
@@ -495,7 +495,7 @@ static unsigned ZopfliPNGOptimize(const char * Infile, const std::vector<unsigne
   }
 
   if (error) {
-    fprintf(stderr, "%s decoding error %i: %s\n", Infile, error, lodepng_error_text(error));
+    fprintf(stderr, "decoding error %i: %s\n", error, lodepng_error_text(error));
     return error;
   }
   // If lossy_transparent, remove RGB information from pixels with alpha=0
@@ -506,19 +506,19 @@ static unsigned ZopfliPNGOptimize(const char * Infile, const std::vector<unsigne
   error = TryOptimize(image, imagesize, w, h, bit16, inputstate, &png_options, resultpng, best_filter, filters, palette_filter);
   free(image);
   if (error) {
-    fprintf(stderr, "%s encoding error %u: %s\n", Infile, error, lodepng_error_text(error));
+    fprintf(stderr, "encoding error %u: %s\n", error, lodepng_error_text(error));
     return error;
   }
   if (!png_options.strip) {
     std::vector<std::string> names[3];
     std::vector<std::vector<unsigned char> > chunks[3];
     lodepng::getChunks(names, chunks, origpng);
-    lodepng::insertChunks(*resultpng, chunks);
+    lodepng::insertChunks(resultpng, chunks);
   }
   return 0;
 }
 
-int Zopflipng(bool strip, const char * Infile, const char * Outfile, bool strict, unsigned Mode, int filter, unsigned multithreading, unsigned quiet) {
+int Zopflipng(bool strip, const std::vector<unsigned char> &buf_in, std::vector<unsigned char> &buf_out, bool strict, unsigned Mode, int filter, unsigned multithreading, unsigned quiet) {
   ZopfliPNGOptions png_options;
   png_options.Mode = Mode;
   png_options.multithreading = multithreading;
@@ -527,27 +527,13 @@ int Zopflipng(bool strip, const char * Infile, const char * Outfile, bool strict
   filter &= 0xFF;
   png_options.lossy_transparent = !strict && filter != 6;
   png_options.strip = strip;
-  std::vector<unsigned char> origpng;
-
   std::vector<unsigned char> filters;
-  unsigned error = lodepng::load_file(origpng, Infile);
-  if (error) {
-    fprintf(stderr, "Could not load PNG %s\n", Infile);
-    return -1;
-  }
   if (filter == 6){
-    lodepng::getFilterTypes(filters, origpng);
+    lodepng::getFilterTypes(filters, buf_in);
     if(!filters.size()){
-      fprintf(stderr, "%s: Could not load PNG filters\n", Infile);
+      fprintf(stderr, "warn: could not load png filters\n");
       return -1;
     }
   }
-  std::vector<unsigned char> resultpng;
-  if (ZopfliPNGOptimize(Infile, origpng, png_options, &resultpng, filter, filters, palette_filter)) {return -1;}
-  if (resultpng.size() >= origpng.size()) {return 1;}
-  if (lodepng::save_file(resultpng, Outfile) != 0) {
-    fprintf(stderr, "Failed to write to file %s\n", Outfile);
-    return -1;
-  }
-  return 0;
+  return ZopfliPNGOptimize(buf_in, png_options, buf_out, filter, filters, palette_filter);
 }

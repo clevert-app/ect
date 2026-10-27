@@ -26,13 +26,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <vector>
 #include <thread>
 
 #if defined(_WIN32)
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0601
 #endif
-#include <vector>
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <sys/sysctl.h>
@@ -93,6 +93,23 @@ void set_file_time(const char *Infile, time_t otime) {
   if (utime(Infile, &oldtime)) {
     printf("%s: Could not set time\n", Infile);
   }
+}
+
+int read_file(const char *Infile, std::vector<unsigned char> &buf) {
+  FILE *fd = fopen(Infile, "rb");
+  if (!fd) {
+    fclose(fd);
+    return 1;
+  }
+  long long size = filesize(Infile);
+  buf.resize(size);
+  size_t in_read_size = fread(buf.data(), 1, size, fd);
+  if (in_read_size != size) {
+    fclose(fd);
+    return 1;
+  }
+  fclose(fd);
+  return 0;
 }
 
 // cpu phy core count, inspired by https://github.com/pytorch/cpuinfo , License:

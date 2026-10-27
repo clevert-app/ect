@@ -1,10 +1,11 @@
 #include "gztools.h"
-#include "miniz/miniz.h"
-#include "optipng/optipng.h"
+#include "pngtools.h"
 #include "support.h"
+#include "zipalign/ZipFile.h"
 #include "zopfli/zopfli_gzip.h"
 #include "zopflipng.h"
 #include <atomic>
+#include <cassert>
 #include <climits>
 #include <cstdint>
 #include <cstdio>
@@ -12,17 +13,18 @@
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <sys/stat.h>
 #include <thread>
 #include <vector>
 #ifdef _WIN32
 #include <Windows.h>
+#include <io.h>
 #else
 #include <unistd.h>
 #endif
 
 // clang-format off
 #define assert_with_msg(v, msg, ...) do { if (!(v)) { fprintf(stderr, "error: " msg "\n", ##__VA_ARGS__); exit(1); } } while (0)
-// unsigned fileHandler(const char * Infile, const ECTOptions& Options, int internal);
 // unsigned zipHandler(std::vector<int> args, const char * argv[], int files, const ECTOptions& Options);
 // void ReZipFile(const char* file_path, const ECTOptions& Options, size_t* files);
 // clang-format on
@@ -36,10 +38,9 @@ static struct Opt {
   bool quiet = false;
   bool strict = false;
   bool compress_stored = false;
+  bool optimize_inside = false;
   bool reuse = false;
   bool all_filters = false;
-  bool all_filters_brute = false;
-  bool all_filters_cheap = false;
   int pal_sort = false;
   bool mt_file = false;
 } opt;
@@ -55,36 +56,74 @@ static void show_usage() {
     "Usage: ect [OPTION...] [FILE]...\n"
     "\n"
     "Examples:\n"
-    "  ect inplace1.png inplace2.jpg              # Optimize png and jpeg in-place.\n"
-    "  ect -6 -o output.zip input.zip             # Recompress zip with zopfli level 6.\n"
+    "  ect inplace1.png inplace2.zip more.gz      # Optimize many files in-place.\n"
+    "  ect -6 -o output.zip --zip a.txt b.txt     # Create ZIP with zopfli level 6.\n"
     "  ect --as zipalign -z -P 4 4 i.apk o.apk    # Use as zipalign.\n"
     "  ect --as cjxl                              # Use as cjxl.\n"
     "\n"
     "Options:\n"
+    "  --output, -o FILE  Output file path\n"
     "  -2 to -9           Set compression level (default: 3)\n"
     "  --strip            Strip metadata\n"
-    "  --zip              Compress file(s) with ZIP algorithm\n"
-    "  --gzip             Compress file(s) with GZIP algorithm, can use stdin stdout\n"
+    "  --zip              Create new ZIP with file(s), must use with --output\n"
+    "  --gzip             Compress stdin with GZIP, write to --output or stdout\n"
     "  --quiet            Print only error messages\n"
     "  --help, -h         Print only error messages\n"
     "  --strict           Enable strict losslessness\n"
     "  --compress-stored  Deflate stored ZIP entries (may break some formats like APK)\n"
+    "  --optimize-inside  Optimize supported entries inside ZIP\n"
     "  --reuse            Keep PNG filter and colortype\n"
     "  --all-filters      Try all PNG filter modes\n"
-    "  --all-filters-b    Try all PNG filter modes, including brute force strategies\n"
-    "  --all-filters-c    Try all PNG filter modes, may cheaper\n"
-    "  --pal-sort [n]     Try n different PNG palette filtering strategies (up to 120)\n"
-    "  --mt-file [n]      Use per file multithreading (with n threads)\n"
+    "  --pal-sort N       Try N different PNG palette filtering strategies (N <= 120)\n"
+    "  --mt-file [N]      Use per file multithreading (with N threads)\n"
     "\n"
     "About:\n"
     "  Homepage: https://github.com/clevert-app/ect\n"
     "  Version: 2.0.1-alpha.1\n"
-    "  Build date: " __DATE__ "\n"
+    "  Build date: " __DATE__ " " __TIME__ "\n"
   );
   // clang-format on
 }
 
-static int gzipHandler(const std::string &input_file, long long input_size, const char *outname) {
+static int zip_handler(const std::vector<std::string> &list, bool recompress, const char *outname) {
+  using namespace android;
+  const int zout_flags = ZipFile::kOpenReadWrite | ZipFile::kOpenCreate | ZipFile::kOpenTruncate;
+  int ret = 0;
+  // compress all into zip
+  if (!recompress) {
+    ZipFile zout;
+    ret = zout.open(outname, zout_flags);
+    assert_with_msg(ret == OK, "unable to open zip file %s", outname);
+    for (const std::string &input_file : list) {
+      std::vector<unsigned char> buf_in;
+      assert_with_msg(read_file(input_file.c_str(), buf_in) == 0, "read file failed");
+      unsigned char *out = nullptr;
+      size_t out_size = 0;
+      ZopfliBuffer(opt.mode, 0, buf_in.data(), buf_in.size(), &out, &out_size);
+      int method = ZipEntry::kCompressDeflated;
+      ret = zout.add(out, buf_in.size(), input_file.c_str(), method, nullptr, out_size);
+      free(out);
+      assert_with_msg(ret == OK, "add zip entry failed");
+    }
+    return 0;
+  }
+  // want to recompress
+  assert_with_msg(false, "not supported yet");
+  assert_with_msg(recompress && list.size() == 1, "invalid");
+  const char *in_file_name = list[0].c_str();
+  ZipFile zin, zout;
+  ret = zin.open(in_file_name, ZipFile::kOpenReadOnly);
+  assert_with_msg(ret == OK, "unable to open zip file %s", in_file_name);
+  ret = zout.open(outname, zout_flags);
+  assert_with_msg(ret == OK, "unable to open zip file %s", outname);
+  // ZipFile *pZin = &zin, *pZout = &zout;
+  // int numEntries = pZin->getNumEntries();
+  // ZipEntry* pEntry;
+  // status_t status;
+  return 0;
+}
+
+static int gzip_handler(const std::string &input_file, long long input_size, const char *outname) {
   assert_with_msg(input_size != 0, "compress empty file unsupported");
   char *gzip_name = nullptr; // the name in gzip header
   std::unique_ptr<char, decltype(&std::free)> gzip_name_(gzip_name, std::free);
@@ -96,60 +135,63 @@ static int gzipHandler(const std::string &input_file, long long input_size, cons
   return ZopfliGzip(input_file.c_str(), outname, opt.mode, multithreading, false, true, gzip_name);
 }
 
-static int pngHandler(const std::string &input_file, long long input_size, const char *outname) {
-  unsigned _mode = opt.mode;
-  unsigned mode = (opt.mode % 10000) > 9 ? 9 : (opt.mode % 10000);
-  if (mode == 1 && opt.reuse)
-    mode++;
-  unsigned mt_deflate = 0;
+static int png_handler(const std::string &input_file, long long input_size, const char *outname) {
+  // origin ect has extra mode support, now removed
+  // unsigned _mode = opt.mode;
+  // unsigned mode = (opt.mode % 10000) > 9 ? 9 : (opt.mode % 10000);
+  int mode = opt.mode;
+  int mt_deflate = 0;
   int x = 0;
 
+  std::vector<unsigned char> buf_in;
+  assert_with_msg(read_file(input_file.c_str(), buf_in) == 0, "read file failed");
+
+  FILE *fd_out = fopen(outname, "wb");
+  assert_with_msg(fd_out, "open output file failed");
+  std::unique_ptr<FILE, decltype(&fclose)> fd_out_(fd_out, fclose);
+  std::vector<unsigned char> buf_out;
+
+  // mode 9 do extra pre-compress use mode 3
   if (mode == 9 && !opt.reuse && !opt.all_filters) {
-    x = Zopflipng(opt.strip, input_file.c_str(), outname, opt.strict, 3, 0, mt_deflate, opt.quiet);
-    if (x < 0)
-      return 1;
+    x = Zopflipng(opt.strip, buf_in, buf_out, opt.strict, 3, 0, mt_deflate, opt.quiet);
+    assert_with_msg(x == 0, "zopfli png failed with code %d", x);
+    if (buf_out.size() < buf_in.size())
+      std::swap(buf_in, buf_out);
+    buf_out.clear();
   }
 
-  // Disabled as using this causes libpng warnings
-  // int filter = Optipng(Options.Mode, Infile, true, Options.Strict || Options.Mode > 1);
-  int filter = 0;
-  // if (!opt.all_filters)
-  //   filter = opt.reuse ? 6 : Optipng(mode, input_file.c_str(), false, opt.strict || mode > 1);
-  if (filter == -1)
-    return 1;
-  if (filter && !opt.all_filters && opt.all_filters_cheap && !opt.reuse)
-    filter = 15;
-
-  if (opt.all_filters) {
-    unsigned mt_deflate = 0;
-    const int filters[] = {6, 0, 5, 1, 2, 3, 4, 7, 8, 11, 12, 13, 9, 10, 14};
-    const int filters_len_brute = sizeof(filters) / sizeof(filters[0]);
-    const int filters_len = filters_len_brute - 3; // without last 3 filters
-    x = Zopflipng(opt.strip, input_file.c_str(), outname, opt.strict, _mode,
-                  filters[0] + opt.pal_sort, mt_deflate, opt.quiet);
-    if (x < 0)
-      return 1;
-    // todo: about overwrite
-    // for (int i = 1; i < (opt.all_filters_brute ? filters_len_brute : filters_len); i++) {
-    //   Zopflipng(opt.strip, input_file.c_str(), outname, opt.strict, _mode,
-    //             filters[i] + opt.pal_sort, mt_deflate, opt.quiet);
-    // }
-    return 0;
+  const int strategies[] = {6, 10, 0, 1, 2, 3, 4, 7, 8, 9};
+  int strategies_len = 2;
+  if (opt.reuse)
+    strategies_len = 1;
+  else if (opt.all_filters)
+    strategies_len = sizeof(strategies) / sizeof(strategies[0]);
+  for (int i = 0; i < strategies_len; i++) {
+    int filter_val = strategies[i] + opt.pal_sort;
+    x = Zopflipng(opt.strip, buf_in, buf_out, opt.strict, mode, filter_val, mt_deflate, opt.quiet);
+    assert_with_msg(x == 0, "zopfli png failed with code %d", x);
+    if (buf_out.size() < buf_in.size())
+      std::swap(buf_in, buf_out);
+    buf_out.clear();
   }
 
-  x = Zopflipng(opt.strip, input_file.c_str(), outname, opt.strict, _mode, filter + opt.pal_sort,
-                mt_deflate, opt.quiet);
-  if (x < 0)
-    return 1;
+  if (opt.strip) {
+    assert_with_msg(strip_png(buf_in, buf_out) == 0, "strip PNG failed");
+    std::swap(buf_in, buf_out);
+    buf_out.clear();
+  }
 
-  // if (opt.strip && x)
-  //   Optipng(0, input_file.c_str(), false, 0);
+  size_t out_write_size = fwrite(buf_in.data(), 1, buf_in.size(), fd_out); // buf_in already swapped
+  assert_with_msg(out_write_size == buf_in.size(), "write size not match");
+  assert_with_msg(fclose(fd_out_.release()) == 0, "close output file failed");
 
   return 0;
 }
 
-static int fileHandler(const std::string &input_file, bool internal) {
+static int file_handler(const std::string &input_file, bool internal) {
   std::string e = input_file.substr(input_file.find_last_of(".") + 1); // extension name
+  for (char &c : e)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   long long input_size = filesize(input_file.c_str());
   assert_with_msg(input_size >= 0, "bad file %s", input_file.c_str());
   assert_with_msg(input_size < 1200000000, "input size too big"); // just random number
@@ -160,14 +202,30 @@ static int fileHandler(const std::string &input_file, bool internal) {
     outname = output_file.c_str();
   }
   int ret = 0;
-  if (e == "GZIP" || e == "gzip" || e == "GZ" || e == "gz") {
-    ret = gzipHandler(input_file, input_size, outname);
-  } else if (e == "PNG" || e == "png") {
-    ret = pngHandler(input_file, input_size, outname);
+
+  if (e == "zip" || e == "apk" || e == "docx" || e == "xlsx" || e == "pptx" || e == "dotx" ||
+      e == "xltx" || e == "potx" || e == "odt" || e == "ods" || e == "odp" || e == "odg" ||
+      e == "epub" || e == "3mf" || e == "jar" || e == "ipa") {
+    ret = zip_handler(std::vector<std::string>{input_file}, true, outname);
+  } else if (e == "gzip" || e == "gz" || e == "tgz") {
+    ret = gzip_handler(input_file, input_size, outname);
+  } else if (e == "png") {
+    ret = png_handler(input_file, input_size, outname);
+  } else {
+    printf("unsupported file extension %s", e.c_str());
+    return 0;
   }
   assert_with_msg(ret == 0, "failed file %s", input_file.c_str());
   if (opt.output == nullptr) {
     if (filesize(outname) < input_size) {
+      struct stat input_stat;
+      assert_with_msg(stat(input_file.c_str(), &input_stat) == 0, "read input permissions failed");
+#ifdef _WIN32
+      int r = _chmod(outname, input_stat.st_mode & (_S_IREAD | _S_IWRITE));
+#else
+      int r = chmod(outname, input_stat.st_mode & 07777);
+#endif
+      assert_with_msg(r == 0, "set permissions failed");
       RenameAndReplace(outname, input_file.c_str());
     } else {
       unlink(outname);
@@ -208,10 +266,10 @@ static void multi_call(int argc, char *argv[]) {
       }
     }
   }
-  #ifdef ZIPALIGN_SUPPORTED
+#ifdef ZIPALIGN_SUPPORTED
   if (strcmp(applet, "zipalign") == 0)
     exit(cmd_zipalign_main(argc, argv));
-  #endif
+#endif
 }
 
 int main(int argc, char *argv[]) {
@@ -228,13 +286,12 @@ int main(int argc, char *argv[]) {
     int len_least = strnlen(arg, 32); // real len can be more than this
     if (strcmp(arg, "--") == 0) {
       // assume remains are not switches
-      for (int j = i + 1; j < argc; j++) {
-        files.push_back(arg);
-      }
+      for (int j = i + 1; j < argc; j++)
+        files.push_back(argv[j]);
       break;
     } else if (len_least >= 1 && arg[0] != '-') {
       files.push_back(arg);
-    } else if (strcmp(arg, "--output") == 0 && i + 1 < argc) {
+    } else if ((strcmp(arg, "--output") == 0 || strcmp(arg, "-o") == 0) && i + 1 < argc) {
       opt.output = argv[i + 1];
       i++;
     } else if (len_least == 2 && arg[0] == '-' && ('1' <= arg[1] && arg[1] <= '9')) {
@@ -252,17 +309,17 @@ int main(int argc, char *argv[]) {
       opt.strict = true;
     } else if (strcmp(arg, "--compress-stored") == 0) {
       opt.compress_stored = true;
+    } else if (strcmp(arg, "--optimize-inside") == 0) {
+      opt.optimize_inside = true;
+      assert_with_msg(false, "switch --optimize-inside is not implemented yet");
     } else if (strcmp(arg, "--reuse") == 0) {
       opt.reuse = true;
     } else if (strcmp(arg, "--all-filters") == 0) {
       opt.all_filters = true;
-    } else if (strcmp(arg, "--all-filters-b") == 0) {
-      opt.all_filters_brute = opt.all_filters = true;
-    } else if (strcmp(arg, "--all-filters-c") == 0) {
-      opt.all_filters_cheap = true;
     } else if (strcmp(arg, "--pal-sort") == 0 && i + 1 < argc) {
       opt.pal_sort = atoi(argv[i + 1]) << 8;
       assert_with_msg(opt.pal_sort <= (120 << 8), "out of range --pal-sort");
+      i++;
     } else if (strcmp(arg, "--mt-file") == 0) {
       opt.mt_file = true;
     } else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
@@ -275,17 +332,25 @@ int main(int argc, char *argv[]) {
   }
   // switches parsing end
   assert_with_msg(!(opt.reuse && opt.all_filters), "the --reuse and --all-filters are conflicting");
-  if (opt.gzip && files.size() == 0) {
-    #ifdef _WIN32
+  if (opt.gzip) {
+    assert_with_msg(files.size() != 0, "--gzip switch is for stdin");
+#ifdef _WIN32
     if (_setmode(_fileno(stdin), _O_BINARY) == -1 || _setmode(_fileno(stdout), _O_BINARY) == -1)
       return 1;
-    #endif
-    // stdin stdout, ignore multi thread block support
-    return ZopfliGzipStream(opt.mode, stdin, stdout);
+#endif
+    std::unique_ptr<FILE, decltype(&fclose)> fd_out_(nullptr, fclose);
+    FILE *fd_out = stdout;
+    if (opt.output != nullptr) {
+      fd_out = fopen(opt.output, "wb");
+      assert_with_msg(fd_out, "open output file failed");
+      fd_out_.reset(fd_out);
+    }
+    // stdin, ignore multi thread block support
+    return ZopfliGzipStream(opt.mode, stdin, fd_out);
   }
   if (opt.output != nullptr && !opt.zip) {
     assert_with_msg(files.size() == 1, "expected exactly 1 input file");
-    return fileHandler(files[0], 0);
+    return file_handler(files[0], 0);
   }
   std::vector<std::string> files_list;
   for (char *name : files) {
@@ -299,14 +364,15 @@ int main(int argc, char *argv[]) {
       }
     }
   }
-  if (opt.zip && files_list.size() != 0) {
-    // return zipHandler(files_list);
+  // zip is the only "n in 1 out" format, others are "1 in 1 out", be careful
+  if (opt.zip) {
+    assert_with_msg(opt.output != nullptr, "--zip must be used with --output");
+    return zip_handler(files_list, false, opt.output);
   }
   for (const auto &file : files_list) {
-    int ret = fileHandler(file, true);
-    if (ret != 0) {
+    int ret = file_handler(file, true);
+    if (ret != 0)
       return ret;
-    }
   }
   return 0;
 }

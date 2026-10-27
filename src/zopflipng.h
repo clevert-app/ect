@@ -1,4 +1,5 @@
 #ifndef ZOPFLI_ZOPFLIPNG_H_
 #define ZOPFLI_ZOPFLIPNG_H_
-int Zopflipng(bool strip, const char * Infile, const char * Outfile, bool strict, unsigned Mode, int filter, unsigned multithreading, unsigned quiet);
+#include <vector>
+int Zopflipng(bool strip, const std::vector<unsigned char> &buf_in, std::vector<unsigned char> &buf_out, bool strict, unsigned Mode, int filter, unsigned multithreading, unsigned quiet);
 #endif

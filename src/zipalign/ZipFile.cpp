@@ -24,7 +24,7 @@
 
 #include "ZipFile.h"
 
-#include <zlib.h>
+#include "zlib.h"
 
 #include "zopfli/deflate.h"
 
@@ -347,7 +347,7 @@ status_t ZipFile::readCentralDir(void)
  * safely written.  Not really a concern for us.
  */
 status_t ZipFile::addCommon(const char* fileName, const void* data, size_t size,
-    const char* storageName, int compressionMethod, ZipEntry** ppEntry)
+    const char* storageName, int compressionMethod, ZipEntry** ppEntry, size_t compressed_size)
 {
     ZipEntry* pEntry = NULL;
     status_t result = OK;
@@ -401,7 +401,7 @@ status_t ZipFile::addCommon(const char* fileName, const void* data, size_t size,
     /*
      * Copy the data in, possibly compressing it as we go.
      */
-    if (compressionMethod == ZipEntry::kCompressDeflated) {
+    if (compressionMethod == ZipEntry::kCompressDeflated && compressed_size == 0) {
         bool failed = false;
         result = compressFpToFp(mZipFp, inputFp, data, size, &crc);
         if (result != OK) {
@@ -438,6 +438,14 @@ status_t ZipFile::addCommon(const char* fileName, const void* data, size_t size,
         }
         if (result != OK) {
             // don't need to truncate; happens in CDE rewrite
+            ALOGD("failed copying data in\n");
+            goto bail;
+        }
+    }
+    // already compressed, maybe with zopfli or other external lib
+    if (compressed_size != 0 && compressionMethod == ZipEntry::kCompressDeflated) {
+        result = copyDataToFp(mZipFp, data, compressed_size, &crc);
+        if (result != OK) {
             ALOGD("failed copying data in\n");
             goto bail;
         }
@@ -687,6 +695,7 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
 
     if (pSourceEntry->isCompressed()) {
         #ifdef NOMULTI
+        static_assert("not supported");
         void *buf = pSourceZip->uncompress(pSourceEntry);
         if (buf == NULL) {
             result = NO_MEMORY;

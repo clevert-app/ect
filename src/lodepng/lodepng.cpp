@@ -31,9 +31,10 @@ Rename this file to lodepng.cpp to use it for C++, or to lodepng.c to use it for
 /*Modified by Felix Hanau to remove unused code, add compression improvements*/
 
 #include "lodepng.h"
-#include "../zlib/zlib.h"
+#include "zlib.h"
 
 #include <math.h>
+#define deflate_nooutput(...) exit(1);
 
 #ifdef LODEPNG_COMPILE_CPP
 #include <algorithm>
@@ -3535,7 +3536,7 @@ static unsigned filter(unsigned char* out, const unsigned char* in, unsigned w, 
     } else if(strategy == LFS_INCREMENTAL2) {
       deflateTune(&stream, 50, 258, 258, 1100);
     }
-    deflateCopy(&teststream, &stream, 1);
+    deflateCopy(&teststream, &stream);
 
     unsigned char* dummy = (unsigned char*)1; //Not used, but must not be 0
     unsigned char* prevline2 = 0;
@@ -3565,7 +3566,8 @@ static unsigned filter(unsigned char* out, const unsigned char* in, unsigned w, 
         out[y * (linebytes + 1)] = type; /*the first byte of a scanline will be the filter type*/
         for(x = 0; x != linebytes; ++x) out[y * (linebytes + 1) + 1 + x] = attempt[type][x];
 
-        deflateCopy(&teststream, &stream, 0);
+        deflateEnd(&teststream);
+        deflateCopy(&teststream, &stream);
         teststream.next_in = (z_const unsigned char *)(out + y * testsize);
         teststream.avail_in = testsize;
         teststream.avail_out = UINT_MAX;

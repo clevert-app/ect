@@ -15,8 +15,8 @@
 #include <unistd.h>
 #endif
 
-#include "../miniz/miniz.h"
-#include "../zlib/zlib.h"
+#include "miniz.h"
+#include "zlib.h"
 #include "../support.h"
 #include "../lodepng/lodepng.h"
 
