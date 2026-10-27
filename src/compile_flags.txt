@@ -1,0 +1,5 @@
+-Wmissing-prototypes
+-Wall
+-I/usr/include/c++/14
+-I/usr/lib/gcc/x86_64-linux-gnu/14/include
+-I./
