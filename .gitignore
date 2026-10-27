@@ -5,7 +5,10 @@
 build
 temp
 temp.md
-jxl
+src/third_party/fetch.*
+src/third_party/jxl
+src/third_party/libpng
+src/third_party/miniz
 google-zopfli
 
 # macOS ancillary files

@@ -13,6 +13,7 @@
 #include <unistd.h>
 #endif
 #include <time.h>
+#include <vector>
 
 // Returns Filesize of Infile
 long long filesize (const char * Infile);
@@ -28,6 +29,8 @@ bool isDirectory(const char *path);
 time_t get_file_time(const char* Infile);
 
 void set_file_time(const char* Infile, time_t otime);
+
+int read_file(const char *Infile, std::vector<unsigned char> &buf);
 
 int get_phy_core_count();
 

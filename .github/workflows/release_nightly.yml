@@ -9,8 +9,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
       - name: Build
         shell: sudo -E bash -e {0}
         run: |
@@ -20,6 +18,7 @@ jobs:
           apt-get install zip zstd make cmake ninja-build nasm
           # build and pack
           cd src
+          scripts/build.sh fetch
           scripts/build.sh build
           cd ..
           mv src/build/ect ect
@@ -41,8 +40,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
       - name: Build
         run: |
           # install toolchain
@@ -51,6 +48,7 @@ jobs:
           GITHUB_ACTIONS="" brew install llvm@23 lld@23 cmake ninja nasm || true
           # build and pack
           cd src
+          scripts/build.sh fetch
           scripts/build.sh build
           cd ..
           mv src/build/ect ect
@@ -71,8 +69,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-        with:
-          submodules: recursive
       - name: Build
         shell: C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start -use-full-path -eo pipefail {0}
         run: |
@@ -81,6 +77,7 @@ jobs:
           pacman --noconfirm -S mingw-w64-clang-x86_64-clang # must be latest clang
           # build and pack
           cd src
+          scripts/build.sh fetch
           scripts/build.sh build
           cd ..
           mv src/build/ect.exe ect.exe

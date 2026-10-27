@@ -3,6 +3,34 @@
 trap exit INT
 type git tar zstd make cmake ninja nasm > /dev/null
 
+if [ "$1" = fetch ]; then
+  # > jxl
+  rm -rf third_party/libpng
+  mkdir -p third_party/jxl
+  echo "jxl todo"
+  # > libpng
+  rm -rf third_party/libpng
+  mkdir -p third_party/libpng
+  t=third_party/fetch.libpng_1_6_59.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.59.tar.gz
+  tar -xf $t --strip-components 1 -C third_party/libpng
+  # > miniz
+  rm -rf third_party/miniz
+  mkdir -p third_party/miniz
+  t=third_party/fetch.miniz_3_1_2.zip
+  [ -e $t ] || curl -o $t -L https://github.com/richgel999/miniz/releases/download/3.1.2/miniz-3.1.2.zip
+  unzip -q -o -d third_party/miniz $t
+  t=third_party/fetch.zlib_3_1_2_zconf.h
+  [ -e $t ] || curl -o $t -L https://github.com/madler/zlib/raw/refs/tags/v1.3.2/zconf.h
+  cp $t third_party/miniz/zconf.h
+  t=third_party/fetch.zlib_3_1_2_zlib.h
+  [ -e $t ] || curl -o $t -L https://github.com/madler/zlib/raw/refs/tags/v1.3.2/zlib.h
+  cp $t third_party/miniz/real_zlib.h
+  printf '#pragma once\n#include <stdint.h>\n#if defined(_WIN32)\n#undef MINIZ_NO_ZLIB_APIS\n#undef MINIZ_NO_ZLIB_COMPATIBLE_NAMES\n#include "./miniz.h"\n#else\n#include "./real_zlib.h"\n#endif\n' > third_party/miniz/zlib.h
+  # > finished
+  exit
+fi
+
 if [ "$1" = build ]; then
   # === build, should after prepare, without modify source code # ./build.sh build profile-generate/profile-use
   # if [ ! -e $temp_dir/build ]; then

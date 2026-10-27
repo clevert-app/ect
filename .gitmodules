@@ -1,3 +1,0 @@
-[submodule "src/libpng"]
-	path = src/libpng
-	url = https://github.com/glennrp/libpng.git

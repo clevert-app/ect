@@ -8,7 +8,7 @@
 #include <cstdlib>
 #include <errno.h>
 #include <unistd.h>
-#include <zlib.h>
+#include "zlib.h"
 #include <vector>
 #include <algorithm>
 #include <future>

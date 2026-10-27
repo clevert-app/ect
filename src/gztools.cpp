@@ -7,7 +7,7 @@
 //
 
 #include "gztools.h"
-#include "zlib/zlib.h"
+#include "zlib.h"
 // #include "leanify/zip.h"
 #include <cstdio>
 #include <cstring>

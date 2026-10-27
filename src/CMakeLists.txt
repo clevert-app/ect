@@ -1,11 +1,14 @@
-cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.26 FATAL_ERROR)
 project(ect VERSION 2.1.1 LANGUAGES CXX C)
 cmake_policy(SET CMP0048 NEW)
 cmake_policy(SET CMP0074 NEW) # allow use of ZLIB_ROOT
 cmake_policy(SET CMP0135 NEW) # timestamp does not matter for local external project
 set (CMAKE_CXX_STANDARD 17)
-if(EXISTS "${CMAKE_SOURCE_DIR}/../.git" AND NOT EXISTS "${CMAKE_SOURCE_DIR}/../src/libpng/png.c")
-  message (FATAL_ERROR "submodules are not initialized")
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libpng/png.c")
+  message (FATAL_ERROR "third_party/libpng not initialized")
+endif()
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz/miniz.c")
+  message (FATAL_ERROR "third_party/miniz not initialized")
 endif()
 if(NOT CMAKE_CXX_FLAGS MATCHES "-O3" OR NOT CMAKE_C_FLAGS MATCHES "-O3")
   message(WARNING "both CXX_FLAGS / CMAKE_C_FLAGS without -O3, will be slow")
@@ -17,6 +20,7 @@ option(ECT_JXL_SUPPORT "The jxl (and jpegli) support" OFF)
 
 add_executable(ect
   main.cpp
+  pngtools.cpp
   gztools.cpp
   LzFind.c
   support.cpp
@@ -62,24 +66,39 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.1-a")
 endif()
 
-add_definitions(-DZLIB_CONST) # enable ZLIB_CONST for everything
-add_subdirectory(zlib EXCLUDE_FROM_ALL)
-add_library(ZLIB::ZLIB ALIAS zlib) # add alias, point zlib to our own one, avoid use system/vcpkg one without our opti
-target_include_directories(zlib INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
-set(ZLIB_LIBRARY zlib::zlib)
-set(ZLIB_LIBRARIES zlib::zlib)
-set(ZLIB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
-add_subdirectory(miniz EXCLUDE_FROM_ALL)
-# add_subdirectory(leanify EXCLUDE_FROM_ALL)
+# on linux/macos use system zlib, on windows use miniz builtin
+set(ZLIB_INCLUDE_DIR "third_party/miniz" CACHE PATH "zlib header directory" FORCE)
+include_directories("third_party/miniz")
+if(UNIX)
+  find_library(SYSTEM_ZLIB NAMES z libz.so.1 libz.so REQUIRED)
+  message(STATUS "Found system zlib for Linux: ${SYSTEM_ZLIB}")
+  set(ZLIB_LIBRARY "${SYSTEM_ZLIB}" CACHE FILEPATH "zlib library" FORCE)
+  add_library(zlib_imported INTERFACE)
+  target_link_libraries(zlib_imported INTERFACE ${SYSTEM_ZLIB})
+  add_library(ZLIB::ZLIB ALIAS zlib_imported)
+else()
+  add_library(miniz "third_party/miniz/miniz.c" "third_party/miniz/miniz.h")
+  add_library(miniz::miniz ALIAS miniz)
+  target_include_directories(miniz PUBLIC "third_party/miniz")
+  add_library(ZLIB::ZLIB ALIAS miniz)
+  set(ZLIB_LIBRARY miniz CACHE STRING "zlib library" FORCE)
+endif()
+set(ZLIB_FOUND TRUE CACHE BOOL "zlib found status" FORCE)
+set(ZLIB_VERSION "1.3.2" CACHE STRING "zlib fake version" FORCE)
+
+set(PNG_TESTS OFF CACHE BOOL "" FORCE)
+set(PNG_SHARED OFF CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_ALL ON)
+add_subdirectory(third_party/libpng)
+add_library(PNG::PNG ALIAS png_static)
+
 add_subdirectory(lodepng EXCLUDE_FROM_ALL)
-add_subdirectory(optipng EXCLUDE_FROM_ALL)
 add_subdirectory(zopfli EXCLUDE_FROM_ALL)
 
 target_link_libraries(ect
-  zlib::zlib
-  miniz::miniz
+  ZLIB::ZLIB
+  PNG::PNG
   lodepng::lodepng
-  optipng::optipng
   zopfli::zopfli
 )
 
