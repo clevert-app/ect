@@ -16,12 +16,10 @@ if [ "$1" = build ]; then
     # curl -O -L https://apt.llvm.org/llvm.sh # supports debian 13 and more
     # bash llvm.sh 23 -m https://mirrors.nju.edu.cn/llvm-apt ; apt-get purge --autoremove lldb-23 clangd-23 # or, only install clang-23 lld-23
     export PATH="/usr/lib/llvm-23/bin:$PATH"
-    export CFLAGS="$CFLAGS -march=x86-64-v3" # -march=x86-64-v3 # without v3 may be faster?
     export LDFLAGS="$LDFLAGS -Wl,--gc-sections" # todo: fix ubuntu still link to system zlib
   elif [ "$(uname | cut -d "-" -f 1) $(uname -m)" = "MINGW64_NT x86_64" ]; then
     # C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start
     # pacman -Syu zip zstd ccache make cmake ninja nasm mingw-w64-clang-x86_64-clang
-    export CFLAGS="$CFLAGS -march=x86-64-v3" # -march=x86-64-v3
     export LDFLAGS="$LDFLAGS -static -Wl,--gc-sections -Wl,--as-needed" # static link libc++
   elif [ "$(uname) $(uname -m)" = "Darwin arm64" ]; then
     # brew install llvm@23 lld@23 cmake ninja nasm
@@ -65,7 +63,15 @@ if [ "$1" = profile ]; then
   add_res 004.apk 04c485c24e5078550a577ba7dd7105f9016d7e14 https://github.com/moonlight-stream/moonlight-android/releases/download/v12.2/app-nonRoot-release.apk # moonlight apk
   add_res 005.tgz 02e2546fde63f7ced89b74f0c76771cbe7b1845e https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.59.tar.gz # libpng source code
   add_res 006.zip d856b1ccd937c51aeb9c342e47666fb8c38e7e72 https://mattmahoney.net/dc/enwik8.zip # enwik8
+  add_res 007.png a56b45cb4947d7de5941a870b1effe835be61803 https://github.com/utmapp/UTM/raw/refs/tags/v5.0.8/screenmac.png # hd screenshot with wallpaper
+  add_res 008.jpg e15adb2906f6ed578348bda1c6b8da0465e9d55f https://github.com/WINNT-Moments/Windows-Wallpaper-Archive/raw/efd8984fa3bf936b0cb9c2ce4295dc5f939d9da1/Windows%207%20RTM%20Wallpapers/Architecture/img13.jpg # building photo
+  add_res 009.jpg 30dde175a6815231da70938de22f29b59a189fd3 https://github.com/WINNT-Moments/Windows-Wallpaper-Archive/raw/efd8984fa3bf936b0cb9c2ce4295dc5f939d9da1/Windows%207%20RTM%20Wallpapers/Characters/img19.jpg # cartoon picture
+  add_res 010.jpg c25fa031d860ea9338ef3ae1d2930286aa3665d2 https://github.com/WINNT-Moments/Windows-Wallpaper-Archive/raw/efd8984fa3bf936b0cb9c2ce4295dc5f939d9da1/Windows%207%20RTM%20Wallpapers/Landscapes/img10.jpg # nature photo
+  add_res 011.png e9971039b78dad80a73af943235963382cc1679b https://github.com/FreeCAD/FreeCAD/raw/refs/tags/1.1.4/.github/images/bim.png # freecad bim screenshot
+  add_res 012.png 4fb9a56efbff6a82c43b51e10148b480bf3fc5b5 https://github.com/FreeCAD/FreeCAD/raw/refs/tags/1.1.4/.github/images/fem.png # freecad fem screenshot
+  add_res 013.png ec7f334ad37ab5f4a318626d3b66aa4098e46047 https://github.com/FreeCAD/FreeCAD/raw/refs/tags/1.1.4/.github/images/partdesign.png # freecad partdesign screenshot
   # cp giflib/pic/fire.gif $res_bak/006.gif
+  exit
   rm -rf build/pgo/default.profdata build/pgo/*.profraw
   for i in 1 2; do # small files twice is enough
     rm -rf $res
@@ -88,11 +94,10 @@ if [ "$1" = profile ]; then
     # profile cjpegli -q 60 pgo/res/002.png pgo/res/002.jpegli.jpeg
     # profile cjpegli -q 85 pgo/res/003.png pgo/res/003.jpegli.jpeg
     # profile djpegli pgo/res/002.jpegli.jpeg pgo/res/002.jpegli.png
-    time -p build/ect -7 -gzip $res/005.tgz # gzip decompress + compress
-    # time -p build/ect -3 -zip $res/006.zip
     time -p build/ect -6 $res/001.png $res/003.png # high level recompress
-    # time -p build/ect -9 $res/002.3.png # very high level recompress
-    ZIPALIGN_THREADS_COUNT=1 ZIPALIGN_ZOPFLI_LEVEL=6 time -p build/ect --as zipalign -z -f -P 4 4 $res/004.apk $res/004.zipalign.apk
+    time -p build/ect -7 -gzip $res/005.tgz # gzip decompress + compress
+    # time -p build/ect -2 -zip $res/006.zip
+    ZIPALIGN_THREADS_COUNT=3 ZIPALIGN_ZOPFLI_LEVEL=6 time -p build/ect --as zipalign -z -f -P 4 4 $res/004.apk $res/004.zipalign.apk
   done
   rm -rf $res
   exit

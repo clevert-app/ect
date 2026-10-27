@@ -36,10 +36,10 @@
 
 #include "trans.h"
 #include "opngcore.h"
+#include "optipng.h"
 #include "codec.h"
 #include "image.h"
 #include "../support.h"
-#include "../main.h"
 
 //The user options structure
 struct opng_options
