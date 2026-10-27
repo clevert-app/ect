@@ -1,8 +1,6 @@
 #ifndef FORMATS_ZIP_H_
 #define FORMATS_ZIP_H_
 
-#include "../main.h"
-
 class Zip {
  public:
   explicit Zip(void* p, size_t s) : fp_(static_cast<uint8_t*>(p)), size_(s) {}

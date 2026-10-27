@@ -28,8 +28,8 @@
 
 #include "lodepng/lodepng_util.h"
 #include "zopfli/deflate.h"
-#include "main.h"
 #include "lodepng/lodepng.h"
+#include "zopflipng.h"
 
 struct ZopfliPNGOptions {
   ZopfliPNGOptions();
@@ -518,7 +518,7 @@ static unsigned ZopfliPNGOptimize(const char * Infile, const std::vector<unsigne
   return 0;
 }
 
-int Zopflipng(bool strip, const char * Infile, bool strict, unsigned Mode, int filter, unsigned multithreading, unsigned quiet) {
+int Zopflipng(bool strip, const char * Infile, const char * Outfile, bool strict, unsigned Mode, int filter, unsigned multithreading, unsigned quiet) {
   ZopfliPNGOptions png_options;
   png_options.Mode = Mode;
   png_options.multithreading = multithreading;
@@ -545,8 +545,8 @@ int Zopflipng(bool strip, const char * Infile, bool strict, unsigned Mode, int f
   std::vector<unsigned char> resultpng;
   if (ZopfliPNGOptimize(Infile, origpng, png_options, &resultpng, filter, filters, palette_filter)) {return -1;}
   if (resultpng.size() >= origpng.size()) {return 1;}
-  if (lodepng::save_file(resultpng, Infile) != 0) {
-    fprintf(stderr, "Failed to write to file %s\n", Infile);
+  if (lodepng::save_file(resultpng, Outfile) != 0) {
+    fprintf(stderr, "Failed to write to file %s\n", Outfile);
     return -1;
   }
   return 0;
