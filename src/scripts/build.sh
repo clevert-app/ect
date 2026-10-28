@@ -84,7 +84,7 @@ if [ "$1" = build ]; then
     export LDFLAGS="$LDFLAGS -Wl,--gc-sections" # todo: fix ubuntu still link to system zlib
   elif [ "$(uname | cut -d "-" -f 1) $(uname -m)" = "MINGW64_NT x86_64" ]; then
     # C:\msys64\msys2_shell.cmd -clang64 -defterm -here -no-start
-    # pacman -Syu zip zstd ccache make cmake ninja nasm mingw-w64-clang-x86_64-clang
+    # pacman --noconfirm -Syu --needed zip zstd $(echo _clang_ccache_make_cmake_ninja_nasm | sed "s/_/ mingw-w64-clang-x86_64-/g")
     export LDFLAGS="$LDFLAGS -static -Wl,--gc-sections -Wl,--as-needed" # static link libc++
   elif [ "$(uname) $(uname -m)" = "Darwin arm64" ]; then
     # brew install llvm@23 lld@23 cmake ninja nasm
@@ -178,8 +178,8 @@ if [ "$1" = measure ]; then
       cp -a $build_dir/pgo/res_bak $build_dir/pgo/res
       time -p $name -6 $build_dir/pgo/res/001.png # taskset -c 2,4,6,8
       sha1sum $build_dir/pgo/res/001.png
-      time -p $name -4 $build_dir/pgo/res/003.png
-      sha1sum $build_dir/pgo/res/003.png
+      time -p $name -4 $build_dir/pgo/res/005.tgz
+      sha1sum $build_dir/pgo/res/005.tgz
     done
     exit
   fi

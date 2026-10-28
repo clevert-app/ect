@@ -347,7 +347,7 @@ status_t ZipFile::readCentralDir(void)
  * safely written.  Not really a concern for us.
  */
 status_t ZipFile::addCommon(const char* fileName, const void* data, size_t size,
-    const char* storageName, int compressionMethod, ZipEntry** ppEntry, size_t compressed_size)
+    const char* storageName, int compressionMethod, ZipEntry** ppEntry, uint64_t compressed_info)
 {
     ZipEntry* pEntry = NULL;
     status_t result = OK;
@@ -401,7 +401,7 @@ status_t ZipFile::addCommon(const char* fileName, const void* data, size_t size,
     /*
      * Copy the data in, possibly compressing it as we go.
      */
-    if (compressionMethod == ZipEntry::kCompressDeflated && compressed_size == 0) {
+    if (compressionMethod == ZipEntry::kCompressDeflated && compressed_info == 0) {
         bool failed = false;
         result = compressFpToFp(mZipFp, inputFp, data, size, &crc);
         if (result != OK) {
@@ -443,10 +443,12 @@ status_t ZipFile::addCommon(const char* fileName, const void* data, size_t size,
         }
     }
     // already compressed, maybe with zopfli or other external lib
-    if (compressed_size != 0 && compressionMethod == ZipEntry::kCompressDeflated) {
-        result = copyDataToFp(mZipFp, data, compressed_size, &crc);
-        if (result != OK) {
-            ALOGD("failed copying data in\n");
+    if (compressed_info != 0 && compressionMethod == ZipEntry::kCompressDeflated) {
+        uint64_t compressed_size = compressed_info & 0xffffffff;
+        crc = uint32_t(compressed_info >> 32);
+        if (fwrite(data, 1, compressed_size, mZipFp) != compressed_size) {
+            ALOGW("fwrite %zu bytes failed, %s", size, strerror(errno));
+            result = UNKNOWN_ERROR;
             goto bail;
         }
     }
