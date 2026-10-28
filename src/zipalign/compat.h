@@ -16,7 +16,7 @@
 #include <deque>
 #include <memory>
 #include "support.h"
-#if defined(__APPLE__) || !defined(off64_t)
+#if defined(__APPLE__)
 typedef off_t off64_t;
 #endif
 #define ALOGV(...) ((void)0)

@@ -19,6 +19,8 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 */
 
 #include <cstdio>
+#include <climits>
+#include <cstdint>
 #include <sys/stat.h>
 
 #include "zopfli.h"
@@ -32,6 +34,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include <cstring>
 #include <string>
 #include <vector>
+#include <memory>
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -187,36 +190,147 @@ static void ZopfliGzipCompress(unsigned mode, unsigned multithreading,
   *(unsigned*)(&(*out)[*outsize]) = insize % UINT_MAX; (*outsize) += 4;
 }
 
-static void LoadGzip(const char* filename, unsigned char** out, long long* outsize_p) {
-  gzFile r = gzopen(filename, "rb");
-  if (!r) {
-    *outsize_p = -1;
+static void LoadGzip(const char *filename, unsigned char **out, long long *outsize_p) {
+  *out = nullptr;
+  *outsize_p = -1;
+  FILE *file = fopen(filename, "rb");
+  std::unique_ptr<FILE, decltype(&fclose)> file_(file, fclose);
+  if (!file)
     return;
-  }
-#define GZIP_READ_SIZE 65536
-  size_t alloc_size = GZIP_READ_SIZE;
-  *out = (unsigned char*)malloc(alloc_size + 16);
-  size_t out_size = 0;
-  do {
-    int bytes = gzread(r, (*out) + out_size, GZIP_READ_SIZE);
-    if (bytes > 0) {
-      out_size += bytes;
-      if (alloc_size - out_size < GZIP_READ_SIZE) {
-        alloc_size *= 2;
-        (*out) = (unsigned char*)realloc(*out, alloc_size + 16);
-      }
-    } else if (bytes == 0) {
-      break;
-    } else {  // bytes < 0
-      fprintf(stderr, "%s: gzip decompression error\n", filename);
-      gzclose_r(r);
-      *outsize_p = -1;
-      return;
+
+  unsigned char input[65536];
+  z_stream strm = {};
+  std::unique_ptr<z_stream, decltype(&inflateEnd)> strm_(&strm, inflateEnd);
+  std::unique_ptr<unsigned char, decltype(&free)> output(nullptr, free);
+
+  if (inflateInit2(&strm, -15) != Z_OK)
+    return;
+  auto refill = [&]() {
+    if (!strm.avail_in) {
+      strm.next_in = input;
+      strm.avail_in = fread(input, 1, sizeof(input), file);
     }
+    return strm.avail_in != 0;
+  };
+  auto read_byte = [&]() -> int {
+    if (!refill())
+      return EOF;
+    --strm.avail_in;
+    return *strm.next_in++;
+  };
+  auto read_number = [&](unsigned bytes, uint32_t *value) {
+    *value = 0;
+    for (unsigned byte = 0; byte < bytes; ++byte) {
+      int next = read_byte();
+      if (next == EOF)
+        return false;
+      *value |= (uint32_t)next << (8 * byte);
+    }
+    return true;
+  };
+
+  size_t alloc_size = 0;
+  size_t out_size = 0;
+  bool have_member = false;
+  for (;;) {
+    unsigned char header[10];
+    int first = read_byte();
+    if (first != 31)
+      break;
+    int second = read_byte();
+    if (second != 139)
+      break;
+    header[0] = first;
+    header[1] = second;
+    for (unsigned byte = 2; byte < sizeof(header); ++byte) {
+      int next = read_byte();
+      if (next == EOF)
+        goto inf_leave;
+      header[byte] = next;
+    }
+    unsigned flags = header[3];
+    if (header[2] != Z_DEFLATED || (flags & 0xe0))
+      goto inf_leave;
+    uint32_t check = crc32(0, header, sizeof(header));
+    auto read_header_byte = [&]() {
+      int next = read_byte();
+      if (next != EOF && (flags & 2)) {
+        unsigned char value = next;
+        check = crc32(check, &value, 1);
+      }
+      return next;
+    };
+    if (flags & 4) {
+      int low = read_header_byte();
+      int high = read_header_byte();
+      if (low == EOF || high == EOF)
+        goto inf_leave;
+      for (unsigned length = low + (high << 8); length; --length) {
+        if (read_header_byte() == EOF)
+          goto inf_leave;
+      }
+    }
+    for (unsigned flag = 8; flag <= 16; flag <<= 1) {
+      if (flags & flag) {
+        int next;
+        do {
+          next = read_header_byte();
+          if (next == EOF)
+            goto inf_leave;
+        } while (next);
+      }
+    }
+    uint32_t hold;
+    if ((flags & 2) && (!read_number(2, &hold) || hold != (check & 0xffff)))
+      goto inf_leave;
+
+    if (inflateReset(&strm) != Z_OK)
+      goto inf_leave;
+    check = 0;
+    uint32_t total = 0;
+    int ret;
+    do {
+      if (alloc_size - out_size < sizeof(input)) {
+        size_t next_size = alloc_size ? alloc_size * 2 : sizeof(input);
+        if (next_size <= alloc_size || next_size > SIZE_MAX - 16)
+          goto inf_leave;
+        unsigned char *resized = (unsigned char *)realloc(output.get(), next_size + 16);
+        if (!resized)
+          goto inf_leave;
+        std::ignore = output.release(); // it is safe here
+        output.reset(resized);
+        alloc_size = next_size;
+      }
+      if (!refill() || ferror(file))
+        goto inf_leave;
+      unsigned have = strm.avail_in;
+      strm.next_out = output.get() + out_size;
+      strm.avail_out = sizeof(input);
+      unsigned had = strm.avail_out;
+      ret = inflate(&strm, Z_NO_FLUSH);
+      size_t produced = had - strm.avail_out;
+      check = crc32(check, output.get() + out_size, produced);
+      total += produced;
+      out_size += produced;
+      if (ret != Z_OK && ret != Z_STREAM_END)
+        goto inf_leave;
+      if (ret != Z_STREAM_END && !produced && have == strm.avail_in)
+        goto inf_leave;
+    } while (ret != Z_STREAM_END);
+    if (!read_number(4, &hold) || hold != check || !read_number(4, &hold) || hold != total)
+      goto inf_leave;
+    have_member = true;
   }
-  while (!gzeof(r));
-  gzclose_r(r);
+  if (!have_member || ferror(file) || out_size > (unsigned long long)LLONG_MAX)
+    goto inf_leave;
+  if (fclose(file_.release()) != 0)
+    goto inf_leave;
   *outsize_p = (long long)out_size;
+  *out = output.release();
+  return;
+
+inf_leave:
+  fprintf(stderr, "%s: gzip decompression error\n", filename);
 }
 
 /*

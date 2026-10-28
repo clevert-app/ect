@@ -10,19 +10,24 @@ if [ "$1" = fetch ]; then
   t=third_party/fetch.miniz_3_1_2.zip
   [ -e $t ] || curl -o $t -L https://github.com/richgel999/miniz/releases/download/3.1.2/miniz-3.1.2.zip
   unzip -q -o -d third_party/miniz $t
+  sed -i.bak -E \
+    -e '/\*(mz_alloc_func|alloc_func)\)|miniz_def_alloc_func\(/s/size_t /unsigned int /g' \
+    -e 's/MZ_MALLOC\(items \*/MZ_MALLOC((size_t)items */' \
+    third_party/miniz/miniz.h third_party/miniz/miniz.c
   t=third_party/fetch.zlib_3_1_2_zconf.h
   [ -e $t ] || curl -o $t -L https://github.com/madler/zlib/raw/refs/tags/v1.3.2/zconf.h
   cp $t third_party/miniz/zconf.h
   t=third_party/fetch.zlib_3_1_2_zlib.h
   [ -e $t ] || curl -o $t -L https://github.com/madler/zlib/raw/refs/tags/v1.3.2/zlib.h
   cp $t third_party/miniz/real_zlib.h
-  printf '#pragma once\n#include <stdint.h>\n#if defined(_WIN32)\n#undef MINIZ_NO_ZLIB_APIS\n#undef MINIZ_NO_ZLIB_COMPATIBLE_NAMES\n#include "./miniz.h"\n#else\n#include "./real_zlib.h"\n#endif\n' > third_party/miniz/zlib.h
+  printf '#pragma once\n#include <stdint.h>\n#if defined(_WIN32)\n#define z_const const\n#include "./miniz.h"\n#else\n#include "./real_zlib.h"\n#endif\n' > third_party/miniz/zlib.h
   # > libpng
   rm -rf third_party/libpng
   mkdir -p third_party/libpng
   t=third_party/fetch.libpng_1_6_59.tar.gz
   [ -e $t ] || curl -o $t -L https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.59.tar.gz
   tar -xf $t --strip-components 1 -C third_party/libpng
+  sed -i.bak 's/#if ZLIB_VERNUM >= 0x1240/#if ZLIB_VERNUM >= 0x1240 \&\& !defined(MZ_VERSION)/' third_party/libpng/pngpriv.h third_party/libpng/pngrutil.c
   # > giflib
   rm -rf third_party/giflib
   mkdir -p third_party/giflib
@@ -43,7 +48,7 @@ if [ "$1" = fetch ]; then
   mkdir -p third_party/libjxl
   t=third_party/fetch.libjxl_commit_e2948747fee8e99a614066eb058e67a0b8de995f.tar.gz
   [ -e $t ] || curl -o $t -L https://github.com/libjxl/libjxl/archive/e2948747fee8e99a614066eb058e67a0b8de995f.tar.gz
-  tar -xf $t --strip-components 1 -C third_party/libjxl
+  tar -xf $t --strip-components 1 -C third_party/libjxl --exclude "*/tools/benchmark/metrics/*.sh"
   sed -i.bak -E \
     -e "s|local down_dir=|local down_dir=$(pwd)/third_party #|g" \
     -e 's|local local_fn=|local local_fn=$down_dir/fetch.$(basename $path)_commit_$sha.tar.gz ; if [ -e $local_fn ]; then t=$MYDIR/$path ; mkdir -p $t ; tar -zxf $local_fn -C $t --strip-components 1 ; return 0 ; fi #|g' \
@@ -131,7 +136,6 @@ if [ "$1" = profile ]; then
   add_res 012.png 4fb9a56efbff6a82c43b51e10148b480bf3fc5b5 https://github.com/FreeCAD/FreeCAD/raw/refs/tags/1.1.4/.github/images/fem.png # freecad fem screenshot
   add_res 013.png ec7f334ad37ab5f4a318626d3b66aa4098e46047 https://github.com/FreeCAD/FreeCAD/raw/refs/tags/1.1.4/.github/images/partdesign.png # freecad partdesign screenshot
   # cp giflib/pic/fire.gif $res_bak/006.gif
-  exit
   rm -rf build/pgo/default.profdata build/pgo/*.profraw
   for i in 1 2; do # small files twice is enough
     rm -rf $res

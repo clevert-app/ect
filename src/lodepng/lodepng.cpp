@@ -35,6 +35,8 @@ Rename this file to lodepng.cpp to use it for C++, or to lodepng.c to use it for
 
 #include <math.h>
 #define deflate_nooutput(...) exit(1);
+#define deflateCopy(...) exit(1);
+#define deflateTune(...) exit(1);
 
 #ifdef LODEPNG_COMPILE_CPP
 #include <algorithm>
@@ -3513,6 +3515,7 @@ static unsigned filter(unsigned char* out, const unsigned char* in, unsigned w, 
     for(type = 0; type != 5; ++type) free(attempt[type]);
 
   } else if(strategy == LFS_INCREMENTAL || strategy == LFS_INCREMENTAL2 || strategy == LFS_INCREMENTAL3) {
+    exit(1); // not used
     /*Incremental brute force filter chooser.
      Keep a buffer of each tested scanline and deflate the entire buffer after every filter attempt to see which one deflates best.
      Now implemented with streaming, which reduces complexity to O(n)
@@ -3831,6 +3834,7 @@ static unsigned filter(unsigned char* out, const unsigned char* in, unsigned w, 
 
     for(type = 0; type != 5; ++type) free(attempt[type]);
   } else if(strategy == LFS_GENETIC || strategy == LFS_ALL_CHEAP) {
+    exit(1); // not used
     if(strategy == LFS_GENETIC) {
       if(!settings->quiet) {
         printf("Genetic filtering has been enabled, which may take a long time to finish.\n"
