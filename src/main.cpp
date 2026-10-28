@@ -42,11 +42,6 @@ static struct Opt {
   bool mt_file = false;
 } opt;
 
-// statistics
-static std::atomic<size_t> total_files;
-static std::atomic<size_t> total_size;
-static std::atomic<size_t> total_savings;
-
 static void show_usage() {
   // follow date --help
   // clang-format off
@@ -81,6 +76,24 @@ static void show_usage() {
     "  Build date: " __DATE__ " " __TIME__ "\n"
   );
   // clang-format on
+}
+
+static void fmt_bytes_size(char *buf, size_t size) {
+  const char *u = "KMGTP";
+  double d = (double)size / 1024.0;
+  for (; d >= 1024.0 && u[1]; u++)
+    d /= 1024.0;
+  sprintf(buf, "%.2f %ciB", d, *u);
+}
+
+static void print_savings(size_t input_size, size_t output_size, const char *outname) {
+  size_t sub = input_size - output_size;
+  double pct = (double)sub / input_size * 100.0;
+  char s_in[16], s_out[16], s_sub[16];
+  fmt_bytes_size(s_in, input_size);
+  fmt_bytes_size(s_out, output_size);
+  fmt_bytes_size(s_sub, sub);
+  printf("> Output size = %s = %s - %s (%.2f%%) for file %s\n", s_out, s_in, s_sub, pct, outname);
 }
 
 static int zip_handler(const std::vector<std::string> &list, bool recompress, const char *outname) {
@@ -214,8 +227,9 @@ static int file_handler(const std::string &input_file) {
     return 0;
   }
   assert_with_msg(ret == 0, "failed file %s", input_file.c_str());
+  long long output_size = filesize(outname);
   if (opt.output == nullptr) {
-    if (filesize(outname) < input_size) {
+    if (output_size < input_size) {
       struct stat input_stat;
       assert_with_msg(stat(input_file.c_str(), &input_stat) == 0, "read input permissions failed");
 #ifdef _WIN32
@@ -227,9 +241,11 @@ static int file_handler(const std::string &input_file) {
       RenameAndReplace(outname, input_file.c_str());
     } else {
       unlink(outname);
-      printf("not smaller, keep origin");
+      printf("not smaller, keep origin\n");
     }
   }
+  if (!opt.quiet)
+    print_savings(input_size, output_size, opt.output ? opt.output : input_file.c_str());
   return 0;
 }
 
