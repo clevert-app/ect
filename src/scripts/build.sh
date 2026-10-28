@@ -1,19 +1,9 @@
 #!/bin/sh
-# set -ex
+set -e # -ex
 trap exit INT
 type git tar zstd make cmake ninja nasm > /dev/null
 
 if [ "$1" = fetch ]; then
-  # > jxl
-  rm -rf third_party/libpng
-  mkdir -p third_party/jxl
-  echo "jxl todo"
-  # > libpng
-  rm -rf third_party/libpng
-  mkdir -p third_party/libpng
-  t=third_party/fetch.libpng_1_6_59.tar.gz
-  [ -e $t ] || curl -o $t -L https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.59.tar.gz
-  tar -xf $t --strip-components 1 -C third_party/libpng
   # > miniz
   rm -rf third_party/miniz
   mkdir -p third_party/miniz
@@ -27,6 +17,48 @@ if [ "$1" = fetch ]; then
   [ -e $t ] || curl -o $t -L https://github.com/madler/zlib/raw/refs/tags/v1.3.2/zlib.h
   cp $t third_party/miniz/real_zlib.h
   printf '#pragma once\n#include <stdint.h>\n#if defined(_WIN32)\n#undef MINIZ_NO_ZLIB_APIS\n#undef MINIZ_NO_ZLIB_COMPATIBLE_NAMES\n#include "./miniz.h"\n#else\n#include "./real_zlib.h"\n#endif\n' > third_party/miniz/zlib.h
+  # > libpng
+  rm -rf third_party/libpng
+  mkdir -p third_party/libpng
+  t=third_party/fetch.libpng_1_6_59.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.59.tar.gz
+  tar -xf $t --strip-components 1 -C third_party/libpng
+  # > giflib
+  rm -rf third_party/giflib
+  mkdir -p third_party/giflib
+  t=third_party/fetch.giflib_5_2_2.tar.gz
+  [ -e $t ] || curl -o $t -L https://deb.debian.org/debian/pool/main/g/giflib/giflib_5.2.2.orig.tar.gz
+  tar -xf $t --strip-components 1 -C third_party/giflib
+  # > libwebp
+  rm -rf third_party/libwebp
+  mkdir -p third_party/libwebp
+  t=third_party/fetch.libwebp_commit_1844042d1ca751e62e61df7617dba19c98588339.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/webmproject/libwebp/archive/1844042d1ca751e62e61df7617dba19c98588339.tar.gz
+  tar -xf $t --strip-components 1 -C third_party/libwebp
+  for applet in webpinfo cwebp dwebp gif2webp img2webp webpmux; do
+    sed -i.bak "s/int main(/int cmd_${applet}_main(/" third_party/libwebp/examples/$applet.c
+  done
+  # > libjxl
+  rm -rf third_party/libjxl
+  mkdir -p third_party/libjxl
+  t=third_party/fetch.libjxl_commit_e2948747fee8e99a614066eb058e67a0b8de995f.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/libjxl/libjxl/archive/e2948747fee8e99a614066eb058e67a0b8de995f.tar.gz
+  tar -xf $t --strip-components 1 -C third_party/libjxl
+  sed -i.bak -E \
+    -e "s|local down_dir=|local down_dir=$(pwd)/third_party #|g" \
+    -e 's|local local_fn=|local local_fn=$down_dir/fetch.$(basename $path)_commit_$sha.tar.gz ; if [ -e $local_fn ]; then t=$MYDIR/$path ; mkdir -p $t ; tar -zxf $local_fn -C $t --strip-components 1 ; return 0 ; fi #|g' \
+    -e 's|if is_git_repository |if false |g' \
+    -e '/download_github +(testdata|third_party\/(googletest|zlib|libpng|libjpeg-turbo)) /d' \
+    third_party/libjxl/deps.sh
+  (cd third_party/libjxl ; ./deps.sh ; rm -rf third_party/skcms/profiles/*)
+  t=third_party/fetch.jpegli_commit_031a0077f5799a6041004267fc12b956c1f52a20.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/google/jpegli/archive/031a0077f5799a6041004267fc12b956c1f52a20.tar.gz
+  # tar -xf $t --strip-components 1 -C third_party/libjxl --skip-old-files
+  for applet in jxlinfo cjxl djxl; do
+    file=third_party/libjxl/tools/$applet.cc
+    [ -e $file ] || file=third_party/libjxl/tools/${applet}_main.cc
+    sed -i.bak "s/int main(/extern \"C\" int cmd_${applet}_main(/" $file
+  done
   # > finished
   exit
 fi
@@ -123,7 +155,7 @@ if [ "$1" = profile ]; then
     # profile cjpegli -q 85 pgo/res/003.png pgo/res/003.jpegli.jpeg
     # profile djpegli pgo/res/002.jpegli.jpeg pgo/res/002.jpegli.png
     time -p build/ect -6 $res/001.png $res/003.png # high level recompress
-    time -p build/ect -7 -gzip $res/005.tgz # gzip decompress + compress
+    time -p build/ect -7 $res/005.tgz # gzip decompress + compress
     # time -p build/ect -2 -zip $res/006.zip
     ZIPALIGN_THREADS_COUNT=3 ZIPALIGN_ZOPFLI_LEVEL=6 time -p build/ect --as zipalign -z -f -P 4 4 $res/004.apk $res/004.zipalign.apk
   done

@@ -2,13 +2,11 @@
 *.o
 *.a
 *.tmp
-build
 temp
 temp.md
-src/third_party/fetch.*
-src/third_party/jxl
-src/third_party/libpng
-src/third_party/miniz
+**/build
+**/third_party
+src/.cache/clangd
 google-zopfli
 inflate_benchmark.cpp
 

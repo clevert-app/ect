@@ -22,11 +22,8 @@
 #else
 #include <unistd.h>
 #endif
-
 // clang-format off
 #define assert_with_msg(v, msg, ...) do { if (!(v)) { fprintf(stderr, "error: " msg "\n", ##__VA_ARGS__); exit(1); } } while (0)
-// unsigned zipHandler(std::vector<int> args, const char * argv[], int files, const ECTOptions& Options);
-// void ReZipFile(const char* file_path, const ECTOptions& Options, size_t* files);
 // clang-format on
 
 static struct Opt {
@@ -45,9 +42,10 @@ static struct Opt {
   bool mt_file = false;
 } opt;
 
-// static std::atomic<size_t> processedfiles;
-// static std::atomic<size_t> bytes;
-// static std::atomic<long long> savings;
+// statistics
+static std::atomic<size_t> total_files;
+static std::atomic<size_t> total_size;
+static std::atomic<size_t> total_savings;
 
 static void show_usage() {
   // follow date --help
@@ -188,7 +186,7 @@ static int png_handler(const std::string &input_file, long long input_size, cons
   return 0;
 }
 
-static int file_handler(const std::string &input_file, bool internal) {
+static int file_handler(const std::string &input_file) {
   std::string e = input_file.substr(input_file.find_last_of(".") + 1); // extension name
   for (char &c : e)
     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -235,10 +233,17 @@ static int file_handler(const std::string &input_file, bool internal) {
   return 0;
 }
 
-#ifdef ZIPALIGN_SUPPORTED
+// must follow origin define
 extern "C" int cmd_zipalign_main(int argc, char *const argv[]);
-// extern "C" int cmd_cjxl_main(int argc, char* const argv[]); // todo
-#endif
+extern "C" int cmd_webpinfo_main(int argc, const char *argv[]);
+extern "C" int cmd_cwebp_main(int argc, const char *argv[]);
+extern "C" int cmd_dwebp_main(int argc, const char *argv[]);
+extern "C" int cmd_gif2webp_main(int argc, const char *argv[]);
+extern "C" int cmd_img2webp_main(int argc, const char *argv[]);
+extern "C" int cmd_webpmux_main(int argc, const char *argv[]);
+extern "C" int cmd_jxlinfo_main(int argc, char *argv[]);
+extern "C" int cmd_cjxl_main(int argc, char **argv);
+extern "C" int cmd_djxl_main(int argc, const char *argv[]);
 
 static void multi_call(int argc, char *argv[]) {
   // supported usages:
@@ -266,9 +271,29 @@ static void multi_call(int argc, char *argv[]) {
       }
     }
   }
-#ifdef ZIPALIGN_SUPPORTED
   if (strcmp(applet, "zipalign") == 0)
     exit(cmd_zipalign_main(argc, argv));
+#if defined(ECT_LIBWEBP_SUPPORT)
+  if (strcmp(applet, "webpinfo") == 0)
+    exit(cmd_webpinfo_main(argc, (const char **)argv));
+  if (strcmp(applet, "cwebp") == 0)
+    exit(cmd_cwebp_main(argc, (const char **)argv));
+  if (strcmp(applet, "dwebp") == 0)
+    exit(cmd_dwebp_main(argc, (const char **)argv));
+  if (strcmp(applet, "gif2webp") == 0)
+    exit(cmd_gif2webp_main(argc, (const char **)argv));
+  if (strcmp(applet, "img2webp") == 0)
+    exit(cmd_img2webp_main(argc, (const char **)argv));
+  if (strcmp(applet, "webpmux") == 0)
+    exit(cmd_webpmux_main(argc, (const char **)argv));
+#endif
+#if defined(ECT_LIBJXL_SUPPORT)
+  if (strcmp(applet, "jxlinfo") == 0)
+    exit(cmd_jxlinfo_main(argc, argv));
+  if (strcmp(applet, "cjxl") == 0)
+    exit(cmd_cjxl_main(argc, argv));
+  if (strcmp(applet, "djxl") == 0)
+    exit(cmd_djxl_main(argc, (const char **)argv));
 #endif
 }
 
@@ -350,7 +375,7 @@ int main(int argc, char *argv[]) {
   }
   if (opt.output != nullptr && !opt.zip) {
     assert_with_msg(files.size() == 1, "expected exactly 1 input file");
-    return file_handler(files[0], 0);
+    return file_handler(files[0]);
   }
   std::vector<std::string> files_list;
   for (char *name : files) {
@@ -370,7 +395,7 @@ int main(int argc, char *argv[]) {
     return zip_handler(files_list, false, opt.output);
   }
   for (const auto &file : files_list) {
-    int ret = file_handler(file, true);
+    int ret = file_handler(file);
     if (ret != 0)
       return ret;
   }

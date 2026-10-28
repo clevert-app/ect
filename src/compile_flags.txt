@@ -1,6 +1,8 @@
 -Wmissing-prototypes
 -Wall
--I/usr/include/c++/14
 -I/usr/lib/gcc/x86_64-linux-gnu/14/include
+-I/usr/include/x86_64-linux-gnu/c++/14
+-I/usr/include/c++/14
 -I./
 -I./third_party/miniz
+# please --background-index=false
