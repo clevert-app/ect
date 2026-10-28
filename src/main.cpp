@@ -18,6 +18,7 @@
 #include <vector>
 #ifdef _WIN32
 #include <Windows.h>
+#include <fcntl.h>
 #include <io.h>
 #else
 #include <unistd.h>
@@ -78,21 +79,22 @@ static void show_usage() {
   // clang-format on
 }
 
-static void fmt_bytes_size(char *buf, size_t size) {
+static void fmt_bytes_size(char *buf, size_t buf_len, size_t value) {
   const char *u = "KMGTP";
-  double d = (double)size / 1024.0;
+  double d = (double)value / 1024.0;
   for (; d >= 1024.0 && u[1]; u++)
     d /= 1024.0;
-  sprintf(buf, "%.2f %ciB", d, *u);
+  snprintf(buf, buf_len, "%.2f %ciB", d, *u);
 }
 
 static void print_savings(size_t input_size, size_t output_size, const char *outname) {
+  assert_with_msg(input_size <= output_size, "invalid call");
   size_t sub = input_size - output_size;
   double pct = (double)sub / input_size * 100.0;
   char s_in[16], s_out[16], s_sub[16];
-  fmt_bytes_size(s_in, input_size);
-  fmt_bytes_size(s_out, output_size);
-  fmt_bytes_size(s_sub, sub);
+  fmt_bytes_size(s_in, sizeof(s_in), input_size);
+  fmt_bytes_size(s_out, sizeof(s_out), output_size);
+  fmt_bytes_size(s_sub, sizeof(s_sub), sub);
   printf("> Output size = %s = %s - %s (%.2f%%) for file %s\n", s_out, s_in, s_sub, pct, outname);
 }
 
@@ -120,7 +122,7 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
   }
   // want to recompress
   assert_with_msg(false, "not supported yet");
-  assert_with_msg(recompress && list.size() == 1, "invalid");
+  assert_with_msg(recompress && list.size() == 1, "invalid call");
   const char *in_file_name = list[0].c_str();
   ZipFile zin, zout;
   ret = zin.open(in_file_name, ZipFile::kOpenReadOnly);
@@ -137,7 +139,7 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
 static int gzip_handler(const std::string &input_file, long long input_size, const char *outname) {
   assert_with_msg(input_size != 0, "compress empty file unsupported");
   char *gzip_name = nullptr; // the name in gzip header
-  std::unique_ptr<char, decltype(&std::free)> gzip_name_(gzip_name, std::free);
+  std::unique_ptr<char, decltype(&free)> gzip_name_(gzip_name, free);
   int is_gz = IsGzip(input_file.c_str(), &gzip_name);
   assert_with_msg(is_gz != 2, "bad gzip file");
   assert_with_msg(!(is_gz == 3 && opt.strict), "strict mode on, gzip has extra field");
@@ -228,8 +230,8 @@ static int file_handler(const std::string &input_file) {
   }
   assert_with_msg(ret == 0, "failed file %s", input_file.c_str());
   long long output_size = filesize(outname);
-  if (opt.output == nullptr) {
-    if (output_size < input_size) {
+  if (output_size < input_size) {
+    if (opt.output == nullptr) {
       struct stat input_stat;
       assert_with_msg(stat(input_file.c_str(), &input_stat) == 0, "read input permissions failed");
 #ifdef _WIN32
@@ -239,13 +241,14 @@ static int file_handler(const std::string &input_file) {
 #endif
       assert_with_msg(r == 0, "set permissions failed");
       RenameAndReplace(outname, input_file.c_str());
-    } else {
-      unlink(outname);
-      printf("not smaller, keep origin\n");
     }
+    if (!opt.quiet)
+      print_savings(input_size, output_size, opt.output ? opt.output : input_file.c_str());
+  } else {
+    unlink(outname);
+    if (!opt.quiet)
+      printf("> Not smaller, keep origin file %s\n", input_file.c_str());
   }
-  if (!opt.quiet)
-    print_savings(input_size, output_size, opt.output ? opt.output : input_file.c_str());
   return 0;
 }
 
