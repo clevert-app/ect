@@ -94,10 +94,10 @@ public:
      * If "ppEntry" is non-NULL, a pointer to the new entry will be returned.
      */
     status_t add(const void* data, size_t size, const char* storageName,
-        int compressionMethod, ZipEntry** ppEntry, size_t compressed_size = 0)
+        int compressionMethod, ZipEntry** ppEntry, uint64_t compressed_info = 0)
     {
         return addCommon(NULL, data, size, storageName,
-                         compressionMethod, ppEntry, compressed_size);
+                         compressionMethod, ppEntry, compressed_info);
     }
 
     /*
@@ -217,7 +217,7 @@ private:
 
     /* common handler for all "add" functions */
     status_t addCommon(const char* fileName, const void* data, size_t size,
-        const char* storageName, int compressionMethod, ZipEntry** ppEntry, size_t compressed_size = 0);
+        const char* storageName, int compressionMethod, ZipEntry** ppEntry, uint64_t compressed_info = 0);
 
     /* copy all of "srcFp" into "dstFp" */
     status_t copyFpToFp(FILE* dstFp, FILE* srcFp, uint32_t* pCRC32);

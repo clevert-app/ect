@@ -88,14 +88,14 @@ static void fmt_bytes_size(char *buf, size_t buf_len, size_t value) {
 }
 
 static void print_savings(size_t input_size, size_t output_size, const char *outname) {
-  assert_with_msg(input_size <= output_size, "invalid call");
+  assert_with_msg(output_size < input_size, "invalid call");
   size_t sub = input_size - output_size;
   double pct = (double)sub / input_size * 100.0;
   char s_in[16], s_out[16], s_sub[16];
   fmt_bytes_size(s_in, sizeof(s_in), input_size);
   fmt_bytes_size(s_out, sizeof(s_out), output_size);
   fmt_bytes_size(s_sub, sizeof(s_sub), sub);
-  printf("> Output size = %s = %s - %s (%.2f%%) for file %s\n", s_out, s_in, s_sub, pct, outname);
+  printf("> Output size %s = %s - %s (%.2f%%) for file %s\n", s_out, s_in, s_sub, pct, outname);
 }
 
 static int zip_handler(const std::vector<std::string> &list, bool recompress, const char *outname) {
@@ -114,7 +114,9 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
       size_t out_size = 0;
       ZopfliBuffer(opt.mode, 0, buf_in.data(), buf_in.size(), &out, &out_size);
       int method = ZipEntry::kCompressDeflated;
-      ret = zout.add(out, buf_in.size(), input_file.c_str(), method, nullptr, out_size);
+      assert_with_msg(out_size < UINT32_MAX, "invalid call");
+      uint64_t compressed_info = (uint64_t)crc32(0L, buf_in.data(), buf_in.size()) << 32 | out_size;
+      ret = zout.add(out, buf_in.size(), input_file.c_str(), method, nullptr, compressed_info);
       free(out);
       assert_with_msg(ret == OK, "add zip entry failed");
     }
