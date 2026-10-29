@@ -15,7 +15,6 @@
 #include <filesystem>
 #include <string>
 #include <sys/stat.h>
-#include <thread>
 #include <vector>
 #ifdef _WIN32
 #include <Windows.h>
@@ -70,7 +69,7 @@ static void show_usage() {
     "  --reuse            Keep PNG filter and colortype\n"
     "  --all-filters      Try all PNG filter modes\n"
     "  --pal-sort N       Try N different PNG palette filtering strategies (N <= 120)\n"
-    "  --mt-file [N]      Use per file multithreading (with N threads)\n"
+    "  --mt-zip N         Use N threads for ZIP entries\n"
     "\n"
     "About:\n"
     "  Homepage: https://github.com/clevert-app/ect\n"
@@ -123,8 +122,10 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
     }
     return 0;
   }
-  // want to recompress
+  // want to recompress, use zipalign without align
   assert_with_msg(recompress && list.size() == 1, "invalid call");
+  static std::atomic<bool> has_been_called{false};
+  assert_with_msg(!has_been_called.exchange(true), "zip recompress only once per process");
   const char *input_name = list[0].c_str();
   return android::process(input_name, outname, 4, true, true, false, 4096, opt.compress_stored);
 }
@@ -334,6 +335,7 @@ int main(int argc, char *argv[]) {
     } else if (len_least == 2 && arg[0] == '-' && ('1' <= arg[1] && arg[1] <= '9')) {
       opt.mode = 1 + (arg[1] - '1');
       assert_with_msg(opt.mode != 1, "mode 1 is unsupported");
+      setenv("ZIPALIGN_ZOPFLI_LEVEL", arg + 1, 1);
     } else if (strcmp(arg, "--strip") == 0) {
       opt.strip = true;
     } else if (strcmp(arg, "--zip") == 0) {
@@ -357,8 +359,10 @@ int main(int argc, char *argv[]) {
       opt.pal_sort = atoi(argv[i + 1]) << 8;
       assert_with_msg(opt.pal_sort <= (120 << 8), "out of range --pal-sort");
       i++;
-    } else if (strcmp(arg, "--mt-file") == 0) {
+    } else if (strcmp(arg, "--mt-file") == 0 && i + 1 < argc) {
       opt.mt_file = true;
+      setenv("ZIPALIGN_THREADS_COUNT", argv[i + 1], 1);
+      i++;
     } else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
       show_usage();
       return 0;
@@ -386,7 +390,7 @@ int main(int argc, char *argv[]) {
     return ZopfliGzipStream(opt.mode, stdin, fd_out);
   }
   if (opt.output != nullptr && !opt.zip) {
-    assert_with_msg(files.size() == 1, "expected exactly 1 input file");
+    assert_with_msg(files.size() == 1, "to use --output, expected exactly 1 input file");
     return file_handler(files[0]);
   }
   std::vector<std::string> files_list;

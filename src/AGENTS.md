@@ -11,7 +11,6 @@ This repo is `ect`, contains:
 
 - Use cmake. The `./build` is symlink to a dir on my another SSD, it is normal.
 - Run `./scripts/build.sh build` to build. Will produce `./build/ect` (or `./build/ect.exe` on windows).
-- To build on mac, run `ssh mac_m1`.
 
 #### Tips for Windows
 
