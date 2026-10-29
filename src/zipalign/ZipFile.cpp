@@ -640,7 +640,7 @@ bail:
  * If "ppEntry" is non-NULL, a pointer to the new entry will be returned.
  */
 status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSourceEntry,
-    ZipEntry** ppEntry)
+    ZipEntry** ppEntry, bool compressStored)
 {
     ZipEntry* pEntry = NULL;
     status_t result;
@@ -695,7 +695,7 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
 
     uncompressedLen = pSourceEntry->getUncompressedLen();
 
-    if (pSourceEntry->isCompressed()) {
+    if (pSourceEntry->isCompressed() || compressStored) {
         #ifdef NOMULTI
         static_assert("not supported");
         void *buf = pSourceZip->uncompress(pSourceEntry);
@@ -735,8 +735,9 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
                 int idx = pending_next_idx;
                 pending_next_idx++;
                 const ZipEntry *entry = pSourceZip->getEntryByIndex(idx);
-                if (!entry->isCompressed()) continue; // skip directly, see the previous if branch, the "stored" entries will not enter uncompress logic here
-                size_t in_size = entry->getUncompressedLen();
+                if (entry->isEncrypted() || !(entry->isCompressed() || compressStored)) continue;
+                size_t in_size = entry->getUncompressedLen(); // encrypted and empty entries already skipped on caller ZipAlign.cpp copyAndAlign, but threaded logic still hit it
+                if (in_size == 0) continue;
                 uint8_t *in_buf = static_cast<uint8_t *>(pSourceZip->uncompress(entry));
                 assert_or_exit(in_buf != nullptr);
                 pending_size += in_size; // use in_size as placeholder
