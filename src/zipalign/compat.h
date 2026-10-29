@@ -79,7 +79,8 @@ inline int getEnvThreadsCount() {
     if (s == NULL) return 1;
     if (strcmp(s, "phy") == 0) return get_phy_core_count();
     int v = int(strtol(s, NULL, 10));
-    return v == 0 ? int(std::thread::hardware_concurrency()) : v;
+    v = v == 0 ? int(std::thread::hardware_concurrency()) : v;
+    return v >= 1 ? v : 1;
   }();
   return ret;
 }

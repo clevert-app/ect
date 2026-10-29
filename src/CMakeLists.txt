@@ -3,7 +3,8 @@ project(ect VERSION 2.1.1 LANGUAGES CXX C)
 cmake_policy(SET CMP0048 NEW)
 cmake_policy(SET CMP0074 NEW) # allow use of ZLIB_ROOT
 cmake_policy(SET CMP0135 NEW) # timestamp does not matter for local external project
-set (CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD 17)
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libpng/png.c")
   message (FATAL_ERROR "third_party/libpng not initialized")
 endif()
