@@ -1,6 +1,7 @@
 #include "gztools.h"
 #include "pngtools.h"
 #include "support.h"
+#include "zipalign/ZipAlign.h"
 #include "zipalign/ZipFile.h"
 #include "zopfli/zopfli_gzip.h"
 #include "zopflipng.h"
@@ -73,7 +74,7 @@ static void show_usage() {
     "\n"
     "About:\n"
     "  Homepage: https://github.com/clevert-app/ect\n"
-    "  Version: 2.0.1-alpha.1\n"
+    "  Version: 2.0.1-alpha.2\n"
     "  Build date: " __DATE__ " " __TIME__ "\n"
   );
   // clang-format on
@@ -102,7 +103,7 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
   using namespace android;
   const int zout_flags = ZipFile::kOpenReadWrite | ZipFile::kOpenCreate | ZipFile::kOpenTruncate;
   int ret = 0;
-  // compress all into zip
+  // create new zip with files in list
   if (!recompress) {
     ZipFile zout;
     ret = zout.open(outname, zout_flags);
@@ -123,19 +124,9 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
     return 0;
   }
   // want to recompress
-  assert_with_msg(false, "not supported yet");
   assert_with_msg(recompress && list.size() == 1, "invalid call");
-  const char *in_file_name = list[0].c_str();
-  ZipFile zin, zout;
-  ret = zin.open(in_file_name, ZipFile::kOpenReadOnly);
-  assert_with_msg(ret == OK, "unable to open zip file %s", in_file_name);
-  ret = zout.open(outname, zout_flags);
-  assert_with_msg(ret == OK, "unable to open zip file %s", outname);
-  // ZipFile *pZin = &zin, *pZout = &zout;
-  // int numEntries = pZin->getNumEntries();
-  // ZipEntry* pEntry;
-  // status_t status;
-  return 0;
+  const char *input_name = list[0].c_str();
+  return android::process(input_name, outname, 4, true, true, false, 4096, opt.compress_stored);
 }
 
 static int gzip_handler(const std::string &input_file, long long input_size, const char *outname) {

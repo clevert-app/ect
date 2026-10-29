@@ -117,7 +117,7 @@ public:
      * If "ppEntry" is non-NULL, a pointer to the new entry will be returned.
      */
     status_t addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSourceEntry,
-        ZipEntry** ppEntry);
+        ZipEntry** ppEntry, bool compressStored = false);
 
     /*
      * Mark an entry as having been removed.  It is not actually deleted

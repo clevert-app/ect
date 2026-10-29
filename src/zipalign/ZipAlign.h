@@ -33,7 +33,7 @@ namespace android {
  * Returns 0 on success.
  */
 int process(const char* input, const char* output, int alignTo, bool force,
-    bool zopfli, bool pageAlignSharedLibs, int pageSize);
+    bool zopfli, bool pageAlignSharedLibs, int pageSize, bool compressStored = false);
 
 /*
  * Verify the alignment of a zip archive.

@@ -61,6 +61,7 @@ public:
         return mCDE.mCompressionMethod != kCompressStored;
     }
     int getCompressionMethod(void) const { return mCDE.mCompressionMethod; }
+    bool isEncrypted(void) const { return ((mCDE.mGPBitFlag | mLFH.mGPBitFlag) & (0x0001 | 0x0040)) != 0; }
 
     /*
      * Return the uncompressed length.

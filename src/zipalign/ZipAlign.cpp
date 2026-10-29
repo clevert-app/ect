@@ -54,7 +54,7 @@ static int getAlignment(bool pageAlignSharedLibs, int defaultAlignment,
  * Copy all entries from "pZin" to "pZout", aligning as needed.
  */
 static int copyAndAlign(ZipFile* pZin, ZipFile* pZout, int alignment, bool zopfli,
-    bool pageAlignSharedLibs, int pageSize)
+    bool pageAlignSharedLibs, int pageSize, bool compressStored)
 {
     int numEntries = pZin->getNumEntries();
     ZipEntry* pEntry;
@@ -70,14 +70,14 @@ static int copyAndAlign(ZipFile* pZin, ZipFile* pZout, int alignment, bool zopfl
             return 1;
         }
 
-        if (pEntry->isCompressed() || isDirectory(pEntry)) {
+        if (pEntry->isCompressed() || isDirectory(pEntry) || (zopfli && compressStored && !pEntry->isEncrypted() && pEntry->getUncompressedLen() != 0)) {
             /* copy the entry without padding */
             //printf("--- %s: orig at %ld len=%ld (compressed)\n",
             //    pEntry->getFileName(), (long) pEntry->getFileOffset(),
             //    (long) pEntry->getUncompressedLen());
 
-            if (zopfli) {
-                status = pZout->addRecompress(pZin, pEntry, &pNewEntry);
+            if (zopfli && !pEntry->isEncrypted() && pEntry->getUncompressedLen() != 0) {
+                status = pZout->addRecompress(pZin, pEntry, &pNewEntry, compressStored);
             } else {
                 status = pZout->add(pZin, pEntry, padding, &pNewEntry);
             }
@@ -106,7 +106,7 @@ static int copyAndAlign(ZipFile* pZin, ZipFile* pZout, int alignment, bool zopfl
  * output file exists and "force" wasn't specified.
  */
 int process(const char* inFileName, const char* outFileName,
-    int alignment, bool force, bool zopfli, bool pageAlignSharedLibs, int pageSize)
+    int alignment, bool force, bool zopfli, bool pageAlignSharedLibs, int pageSize, bool compressStored)
 {
     ZipFile zin, zout;
 
@@ -138,7 +138,7 @@ int process(const char* inFileName, const char* outFileName,
     }
 
     int result = copyAndAlign(&zin, &zout, alignment, zopfli, pageAlignSharedLibs,
-                              pageSize);
+                              pageSize, compressStored);
     if (result != 0) {
         printf("zipalign: failed rewriting '%s' to '%s'\n",
             inFileName, outFileName);

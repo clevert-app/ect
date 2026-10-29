@@ -34,6 +34,7 @@ Rename this file to lodepng.cpp to use it for C++, or to lodepng.c to use it for
 #include "zlib.h"
 
 #include <math.h>
+// try-deflate strategies not used anymore, so define these
 #define deflate_nooutput(...) exit(1);
 #define deflateCopy(...) exit(1);
 #define deflateTune(...) exit(1);
