@@ -257,6 +257,20 @@ private:
      * classes and sub-classes.
      */
     Vector<ZipEntry*>   mEntries;
+
+    struct Pending { int idx = 0; size_t size = 0; uint8_t *data = nullptr; };
+    struct Mt {
+      // Pending *pending_list = new Pending[pSourceZip->getNumEntries()];
+      std::vector<Pending> pending_list;
+      size_t pending_size = 0;                            // should smaller than 64 MiB size
+      const size_t pending_size_limit = 64 * 1024 * 1024; // should smaller than 64 MiB size
+      int pending_workers_count = 0;
+      const int max_workers_count = getEnvThreadsCount();
+      int pending_next_idx = 0;
+      std::mutex outer_mutex;
+      std::condition_variable cv;
+    };
+    std::shared_ptr<Mt> mt = std::make_shared<Mt>();
 };
 
 }; // namespace android
