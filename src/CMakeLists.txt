@@ -108,6 +108,7 @@ add_library(GIF::GIF ALIAS giflib)
 set(GIF_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/giflib")
 set(GIF_LIBRARY GIF::GIF)
 
+add_subdirectory(deflate_utils EXCLUDE_FROM_ALL)
 add_subdirectory(lodepng EXCLUDE_FROM_ALL)
 add_subdirectory(zopfli EXCLUDE_FROM_ALL)
 
