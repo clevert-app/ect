@@ -9,3 +9,4 @@ add_library(lodepng
 	lodepng_util.h)
 
 add_library(lodepng::lodepng ALIAS lodepng)
+target_link_libraries(lodepng deflate_utils)

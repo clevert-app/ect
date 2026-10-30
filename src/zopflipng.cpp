@@ -30,6 +30,7 @@
 #include "zopfli/deflate.h"
 #include "lodepng/lodepng.h"
 #include "zopflipng.h"
+#include "deflate_utils/zlib.h"
 
 struct ZopfliPNGOptions {
   ZopfliPNGOptions();
@@ -67,6 +68,46 @@ static unsigned CustomPNGDeflate(unsigned char** out, size_t* outsize, const uns
   ZopfliInitOptions(&options, png_options->Mode, png_options->multithreading, 1);
   ZopfliDeflate(&options, 1, in, insize, &bp, out, outsize);
   return 0;
+}
+
+// New LodePNG adapter for the former OptiPNG trial compression.
+static unsigned CustomPNGTrialDeflate(unsigned char** out, size_t* outsize, const unsigned char* in, size_t insize, const LodePNGCompressSettings* settings) {
+  const ZopfliPNGOptions* png_options = static_cast<const ZopfliPNGOptions*>(settings->custom_context);
+  if (insize > UINT_MAX) return 83;
+  z_stream stream = {};
+  // From 8e3a553, optipng/optipng.cpp, opng_optimize_impl; removed in b4671f7.
+  // Mode 1 was removed in 538b9b3.
+  // int level = 5;
+  // if (png_options->Mode > 3){
+  //   level = png_options->Mode > 8 ? 9 : png_options->Mode > 4 ? 7 : 6;
+  // }
+  // else if (png_options->Mode == 3){
+  //   level = 5;
+  // }
+  // else if (png_options->Mode == 2){
+  //   level = 3;
+  // }
+  int level = 5;
+  if (deflateInit2(&stream, level, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK) return 83;
+  size_t capacity = deflateBound(&stream, insize);
+  if (capacity > UINT_MAX || capacity > SIZE_MAX - *outsize) {
+    deflateEnd(&stream);
+    return 83;
+  }
+  unsigned char* buffer = (unsigned char*)realloc(*out, *outsize + capacity);
+  if (!buffer) {
+    deflateEnd(&stream);
+    return 83;
+  }
+  *out = buffer;
+  stream.next_in = in;
+  stream.avail_in = insize;
+  stream.next_out = buffer + *outsize;
+  stream.avail_out = capacity;
+  int result = deflate(&stream, Z_FINISH);
+  *outsize += stream.total_out;
+  deflateEnd(&stream);
+  return result == Z_STREAM_END ? 0 : 111;
 }
 
 // Returns 32-bit integer value for RGBA color.
@@ -355,9 +396,10 @@ static void LossyOptimizeTransparent(lodepng::State* inputstate, unsigned char* 
 // Tries to optimize given a single PNG filter strategy.
 // Returns 0 if ok, other value for error
 static unsigned TryOptimize(unsigned char* image, size_t imagesize, unsigned w, unsigned h, bool bit16, const lodepng::State& inputstate,
-                            const ZopfliPNGOptions* png_options, std::vector<unsigned char> &out, int best_filter, std::vector<unsigned char> filters, unsigned palette_filter) {
+                            const ZopfliPNGOptions* png_options, std::vector<unsigned char> &out, int best_filter, std::vector<unsigned char> filters, unsigned palette_filter,
+                            decltype(&CustomPNGDeflate) compressor = CustomPNGDeflate) {
   lodepng::State state;
-  state.encoder.zlibsettings.custom_deflate = CustomPNGDeflate;
+  state.encoder.zlibsettings.custom_deflate = compressor;
   state.encoder.zlibsettings.custom_context = png_options;
   state.encoder.clean_alpha = png_options->lossy_transparent;
   state.encoder.quiet = png_options->quiet;
@@ -498,10 +540,36 @@ static unsigned ZopfliPNGOptimize(const std::vector<unsigned char>& origpng, con
     fprintf(stderr, "decoding error %i: %s\n", error, lodepng_error_text(error));
     return error;
   }
-  // If lossy_transparent, remove RGB information from pixels with alpha=0
-  if (png_options.lossy_transparent && !bit16 && lodepng_can_have_alpha(&inputstate.info_png.color)) {
-    LossyOptimizeTransparent(&inputstate, image, w, h, best_filter < 5 ? best_filter : 1);
+  if (best_filter == ZOPFLIPNG_FILTER_AUTO) {
+    // Selection rule from 8e3a553, optipng/optipng.cpp, opng_optimize_impl (removed in b4671f7).
+    // Its caller was disabled in 538b9b3; use TryOptimize instead of opng_write_file.
+    size_t trial_sizes[2];
+    for (unsigned trial = 0; trial < 2; ++trial) {
+      std::vector<unsigned char> trial_image(image, image + imagesize);
+      std::vector<unsigned char> trial_png;
+      // if (png_options.lossy_transparent && !bit16 && lodepng_can_have_alpha(&inputstate.info_png.color)) {
+      //   LossyOptimizeTransparent(&inputstate, trial_image.data(), w, h, trial);
+      // }
+      int in_best_filter = trial ? LFS_MINSUM : LFS_ZERO;
+      error = TryOptimize(trial_image.data(), imagesize, w, h, bit16, inputstate, &png_options, trial_png, in_best_filter, filters, 0, CustomPNGTrialDeflate);
+      if (error) {
+        free(image);
+        return error;
+      }
+      trial_sizes[trial] = trial_png.size();
+    }
+    uint64_t best_idat = trial_sizes[0];
+    best_filter = 0;
+    if (best_idat *
+        (png_options.Mode > 4 ? 1.015 : 1) // Account for better filtering
+        > trial_sizes[1]){
+      best_filter = png_options.Mode == 2 ? 8 : png_options.Mode > 3 ? 11 : 5;
+    }
   }
+  // If lossy_transparent, remove RGB information from pixels with alpha=0
+  // if (png_options.lossy_transparent && !bit16 && lodepng_can_have_alpha(&inputstate.info_png.color)) {
+  //   LossyOptimizeTransparent(&inputstate, image, w, h, best_filter < 5 ? best_filter : 1);
+  // }
 
   error = TryOptimize(image, imagesize, w, h, bit16, inputstate, &png_options, resultpng, best_filter, filters, palette_filter);
   free(image);

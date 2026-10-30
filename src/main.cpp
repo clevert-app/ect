@@ -167,12 +167,14 @@ static int png_handler(const std::string &input_file, long long input_size, cons
     buf_out.clear();
   }
 
-  const int strategies[] = {6, 10, 0, 1, 2, 3, 4, 7, 8, 9};
-  int strategies_len = 2;
-  if (opt.reuse)
-    strategies_len = 1;
-  else if (opt.all_filters)
+  // inside, it try-compress to detect 0 or 11 is better
+  // 0 = off, 6 = reuse, 11 = incremental
+  int strategies[] = {6, 0, 1, 2, 3, 4, 5, 11};
+  int strategies_len = 1;
+  if (opt.all_filters)
     strategies_len = sizeof(strategies) / sizeof(strategies[0]);
+  else if (!opt.reuse)
+    strategies[0] = ZOPFLIPNG_FILTER_AUTO;
   for (int i = 0; i < strategies_len; i++) {
     int filter_val = strategies[i] + opt.pal_sort;
     x = Zopflipng(opt.strip, buf_in, buf_out, opt.strict, mode, filter_val, mt_deflate, opt.quiet);

@@ -31,13 +31,10 @@ Rename this file to lodepng.cpp to use it for C++, or to lodepng.c to use it for
 /*Modified by Felix Hanau to remove unused code, add compression improvements*/
 
 #include "lodepng.h"
-#include "zlib.h"
+#include "../deflate_utils/zlib.h"
+#include "../deflate_utils/compat.h"
 
 #include <math.h>
-// try-deflate strategies not used anymore, so define these
-#define deflate_nooutput(...) exit(1);
-#define deflateCopy(...) exit(1);
-#define deflateTune(...) exit(1);
 
 #ifdef LODEPNG_COMPILE_CPP
 #include <algorithm>
@@ -304,10 +301,7 @@ static unsigned lodepng_save_file(const unsigned char* buffer, size_t buffersize
 
 unsigned lodepng_inflate(unsigned char** out, size_t* outsize,
                          const unsigned char* in, size_t insize) {
-  z_stream inf;
-  inf.zalloc = 0;
-  inf.zfree = 0;
-  inf.opaque = 0;
+  CompatInflateStream inf = {};
   inf.next_in = (z_const Byte*)in;
   inf.avail_in = (uInt)insize;
 
@@ -324,10 +318,10 @@ unsigned lodepng_inflate(unsigned char** out, size_t* outsize,
   inf.next_out = buf;
   inf.avail_out = BUFSIZE;
 
-  if(inflateInit2(&inf, -15) != Z_OK) return 83;
+  if(compat_inflateInit2(&inf, -15) != Z_OK) return 83;
 
   while(1) {
-    int err = inflate(&inf, Z_SYNC_FLUSH);
+    int err = compat_inflate(&inf, Z_SYNC_FLUSH);
     if(err == Z_OK) {
       (*out) = (unsigned char*)realloc((*out), (*outsize) + BUFSIZE);
       memcpy(&((*out)[(*outsize)]), buf, BUFSIZE);
@@ -346,11 +340,11 @@ unsigned lodepng_inflate(unsigned char** out, size_t* outsize,
 #endif
       unsigned ret = 95;
       if(err == Z_MEM_ERROR) ret = 83;
-      inflateEnd(&inf);
+      compat_inflateEnd(&inf);
       return ret;
     }
   }
-  if(inflateEnd(&inf) != Z_OK) {
+  if(compat_inflateEnd(&inf) != Z_OK) {
 #if defined(_WIN32) || defined(WIN32)
     free(buf);
 #endif
@@ -3516,7 +3510,6 @@ static unsigned filter(unsigned char* out, const unsigned char* in, unsigned w, 
     for(type = 0; type != 5; ++type) free(attempt[type]);
 
   } else if(strategy == LFS_INCREMENTAL || strategy == LFS_INCREMENTAL2 || strategy == LFS_INCREMENTAL3) {
-    exit(1); // not used
     /*Incremental brute force filter chooser.
      Keep a buffer of each tested scanline and deflate the entire buffer after every filter attempt to see which one deflates best.
      Now implemented with streaming, which reduces complexity to O(n)
@@ -3540,7 +3533,7 @@ static unsigned filter(unsigned char* out, const unsigned char* in, unsigned w, 
     } else if(strategy == LFS_INCREMENTAL2) {
       deflateTune(&stream, 50, 258, 258, 1100);
     }
-    deflateCopy(&teststream, &stream);
+    deflateCopy(&teststream, &stream, 1);
 
     unsigned char* dummy = (unsigned char*)1; //Not used, but must not be 0
     unsigned char* prevline2 = 0;
@@ -3570,8 +3563,7 @@ static unsigned filter(unsigned char* out, const unsigned char* in, unsigned w, 
         out[y * (linebytes + 1)] = type; /*the first byte of a scanline will be the filter type*/
         for(x = 0; x != linebytes; ++x) out[y * (linebytes + 1) + 1 + x] = attempt[type][x];
 
-        deflateEnd(&teststream);
-        deflateCopy(&teststream, &stream);
+        deflateCopy(&teststream, &stream, 0);
         teststream.next_in = (z_const unsigned char *)(out + y * testsize);
         teststream.avail_in = testsize;
         teststream.avail_out = UINT_MAX;
