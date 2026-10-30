@@ -722,7 +722,7 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
         static size_t pending_size = 0; // should smaller than 64 MiB size
         const size_t pending_size_limit = 64 * 1024 * 1024; // should smaller than 64 MiB size
         static int pending_workers_count = 0;
-        static const int max_workers_count = getEnvThreadsCount();
+        static const int max_workers_count = zipalign_get_threads_count();
         static int pending_next_idx = 0;
         static std::mutex outer_mutex;
         static std::condition_variable cv;
@@ -744,7 +744,7 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
                 pending_workers_count++;
                 std::thread([idx, in_buf, in_size]() {
                     ZopfliOptions options;
-                    ZopfliInitOptions(&options, getEnvZopfliLevel(), 0, 0);
+                    ZopfliInitOptions(&options, zipalign_get_zopfli_level(), 0, 0);
                     unsigned char bp = 0, *out = nullptr;
                     size_t out_size = 0;
                     ZopfliDeflate(&options, true, in_buf, in_size, &bp, &out, &out_size);
@@ -939,7 +939,7 @@ status_t ZipFile::compressFpToFp(FILE* dstFp, FILE* srcFp,
     ZopfliOptions options;
     unsigned char bp = 0;
 
-    ZopfliInitOptions(&options, getEnvZopfliLevel(), 0, 0);
+    ZopfliInitOptions(&options, zipalign_get_zopfli_level(), 0, 0);
 
     crc = crc32(0L, Z_NULL, 0);
 
