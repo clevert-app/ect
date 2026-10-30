@@ -53,20 +53,13 @@ if(NOT MSVC)
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|x64)")
-  add_definitions(-DADLER32_SIMD_SSSE3) # zlib enable vector extensions
-  add_definitions(-DINFLATE_CHUNK_SIMD_SSE2)
-  add_definitions(-DINFLATE_CHUNK_READ_64LE)
-  add_definitions(-DHAS_PCLMUL)
   add_definitions(-DHWY_BASELINE_TARGETS=HWY_AVX2)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3 -maes -mpclmul") # the mpclmul is not inside x86-64-v3
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=x86-64-v3 -maes -mpclmul")
 endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)")
-  add_definitions(-DADLER32_SIMD_NEON)
-  add_definitions(-DINFLATE_CHUNK_SIMD_NEON)
-  add_definitions(-DINFLATE_CHUNK_READ_64LE)
   add_definitions(-DHWY_BASELINE_TARGETS=HWY_NEON)
-  set(PNG_ARM_NEON "on")
+  set(PNG_ARM_NEON "on") # really useful or not?
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.1-a") # for mac-arm64, may need mcpu=apple-m1
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.1-a")
 endif()

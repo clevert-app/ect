@@ -29,7 +29,7 @@
 
 static struct Opt {
   char *output = nullptr; // no output means inplace
-  int mode = 3;
+  int mode = 0;
   bool strip = false;
   bool zip = false;
   bool gzip = false;
@@ -40,7 +40,7 @@ static struct Opt {
   bool reuse = false;
   bool all_filters = false;
   int pal_sort = false;
-  bool mt_file = false;
+  char *mt_zip = nullptr; // "0", "phy", "1", "2", "4" and more
 } opt;
 
 static void show_usage() {
@@ -50,10 +50,10 @@ static void show_usage() {
     "Usage: ect [OPTION...] [FILE]...\n"
     "\n"
     "Examples:\n"
-    "  ect inplace1.png inplace2.zip more.gz      # Optimize many files in-place.\n"
-    "  ect -6 -o output.zip --zip a.txt b.txt     # Create ZIP with zopfli level 6.\n"
-    "  ect --as zipalign -z -P 4 4 i.apk o.apk    # Use as zipalign.\n"
-    "  ect --as cjxl                              # Use as cjxl.\n"
+    "  ect -6 inplace.png a.zip b.docx c.gz       # Optimize many files in-place.\n"
+    "  ect -o output.zip --zip a.txt b.txt        # Create ZIP with zopfli level 6.\n"
+    "  tar -c dir | ect --gzip -o file.tar.gz     # Piped streaming GZIP.\n"
+    "  ect --as zipalign ...                      # As zipalign/cjxl/cwebp etc.\n"
     "\n"
     "Options:\n"
     "  --output, -o FILE  Output file path\n"
@@ -61,19 +61,19 @@ static void show_usage() {
     "  --strip            Strip metadata\n"
     "  --zip              Create new ZIP with file(s), must use with --output\n"
     "  --gzip             Compress stdin with GZIP, write to --output or stdout\n"
-    "  --quiet            Print only error messages\n"
-    "  --help, -h         Print only error messages\n"
+    "  --quiet            Do not print size info\n"
+    "  --help, -h         Print this help document\n"
     "  --strict           Enable strict losslessness\n"
     "  --compress-stored  Deflate stored ZIP entries (may break some formats like APK)\n"
     "  --optimize-inside  Optimize supported entries inside ZIP\n"
     "  --reuse            Keep PNG filter and colortype\n"
     "  --all-filters      Try all PNG filter modes\n"
     "  --pal-sort N       Try N different PNG palette filtering strategies (N <= 120)\n"
-    "  --mt-zip N         Use N threads for ZIP entries\n"
+    "  --mt-zip N         N threads for ZIP entries, N = 0 (all), phy, 1, 2 and more\n"
     "\n"
     "About:\n"
     "  Homepage: https://github.com/clevert-app/ect\n"
-    "  Version: 2.0.1-alpha.2\n"
+    "  Version: 2.0.1-alpha.3\n"
     "  Build date: " __DATE__ " " __TIME__ "\n"
   );
   // clang-format on
@@ -310,6 +310,26 @@ static void multi_call(int argc, char *argv[]) {
 #endif
 }
 
+int zipalign_get_zopfli_level() {
+  static const int ret = []() {
+    char *s = getenv("ZIPALIGN_ZOPFLI_LEVEL");
+    int v = s ? (int)strtol(s, NULL, 10) : opt.mode;
+    return (2 <= v && v <= 9) ? v : 4; // 2-9 , default = 4, not 3
+  }();
+  return ret;
+}
+
+int zipalign_get_threads_count() {
+  static const int ret = []() {
+    char *s = opt.mt_zip ? opt.mt_zip : getenv("ZIPALIGN_THREADS_COUNT");
+    if (s == nullptr)
+      return 1;
+    int v = strcmp(s, "phy") == 0 ? get_phy_core_count() : (int)strtol(s, NULL, 10);
+    return std::max(1, v == 0 ? (int)std::thread::hardware_concurrency() : v);
+  }();
+  return ret;
+}
+
 int main(int argc, char *argv[]) {
   // if match, run then exit(), works like busybox applets
   multi_call(argc, argv);
@@ -335,7 +355,6 @@ int main(int argc, char *argv[]) {
     } else if (len_least == 2 && arg[0] == '-' && ('1' <= arg[1] && arg[1] <= '9')) {
       opt.mode = 1 + (arg[1] - '1');
       assert_with_msg(opt.mode != 1, "mode 1 is unsupported");
-      setenv("ZIPALIGN_ZOPFLI_LEVEL", arg + 1, 1);
     } else if (strcmp(arg, "--strip") == 0) {
       opt.strip = true;
     } else if (strcmp(arg, "--zip") == 0) {
@@ -356,12 +375,11 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(arg, "--all-filters") == 0) {
       opt.all_filters = true;
     } else if (strcmp(arg, "--pal-sort") == 0 && i + 1 < argc) {
-      opt.pal_sort = atoi(argv[i + 1]) << 8;
+      opt.pal_sort = (int)strtol(argv[i + 1], NULL, 10) << 8;
       assert_with_msg(opt.pal_sort <= (120 << 8), "out of range --pal-sort");
       i++;
-    } else if (strcmp(arg, "--mt-file") == 0 && i + 1 < argc) {
-      opt.mt_file = true;
-      setenv("ZIPALIGN_THREADS_COUNT", argv[i + 1], 1);
+    } else if (strcmp(arg, "--mt-zip") == 0 && i + 1 < argc) {
+      opt.mt_zip = argv[i + 1];
       i++;
     } else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
       show_usage();
@@ -372,9 +390,11 @@ int main(int argc, char *argv[]) {
     }
   }
   // switches parsing end
+  if (opt.mode == 0)
+    opt.mode = 3; // default = 3
   assert_with_msg(!(opt.reuse && opt.all_filters), "the --reuse and --all-filters are conflicting");
   if (opt.gzip) {
-    assert_with_msg(files.size() != 0, "--gzip switch is for stdin");
+    assert_with_msg(files.size() == 0, "--gzip switch is for stdin");
 #ifdef _WIN32
     if (_setmode(_fileno(stdin), _O_BINARY) == -1 || _setmode(_fileno(stdout), _O_BINARY) == -1)
       return 1;
