@@ -21,20 +21,20 @@ option(ECT_LIBJXL_SUPPORT "The libjxl (and jpegli) support" OFF)
 
 add_executable(ect
   main.cpp
-  pngtools.cpp
   gztools.cpp
   LzFind.c
   support.cpp
-  zopflipng.cpp
+  ectpng.cpp
   # add headers so they get added to things like xcode projects
   gztools.h
   LzFind.h
   support.h
+  ectpng.h
 )
 add_executable(ect::ect ALIAS ect)
 target_include_directories(ect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Allow Win32 ANSI APIs like CreateFileA to use UTF-8 path 
+# Allow Win32 ANSI APIs like CreateFileA to use UTF-8 path
 if(WIN32)
   enable_language(RC)
   file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/utf8.manifest" CONTENT [=[<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><assemblyIdentity type="win32" name="ect" version="1.0.0.0" processorArchitecture="*" /><application xmlns="urn:schemas-microsoft-com:asm.v3"><windowsSettings><activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage></windowsSettings></application></assembly>]=])
@@ -64,7 +64,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.1-a")
 endif()
 
-# On windows use miniz zlib compatible api, on linux/macos link to system zlib.
+# On windows use miniz zlib compatible api, on linux/macos link to system zlib
 set(ZLIB_INCLUDE_DIR "third_party/miniz" CACHE PATH "zlib header directory" FORCE)
 include_directories("third_party/miniz")
 if(WIN32)
@@ -109,14 +109,13 @@ set(GIF_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/giflib")
 set(GIF_LIBRARY GIF::GIF)
 
 add_subdirectory(deflate_utils EXCLUDE_FROM_ALL)
-add_subdirectory(lodepng EXCLUDE_FROM_ALL)
 add_subdirectory(zopfli EXCLUDE_FROM_ALL)
 
 target_link_libraries(ect
   ZLIB::ZLIB
   PNG::PNG
   GIF::GIF
-  lodepng::lodepng
+  deflate_utils
   zopfli::zopfli
 )
 
