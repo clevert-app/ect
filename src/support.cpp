@@ -7,7 +7,17 @@
 //
 
 #include "support.h"
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <memory>
+#include <stdio.h>
 #include <sys/stat.h>
+#include <thread>
+#include <time.h>
+#include <vector>
 #ifdef _WIN32
 #include <Windows.h>
 #endif
@@ -19,15 +29,6 @@
 #else
 #include <utime.h>
 #endif
-#include <stdio.h>
-#include <time.h>
-
-#include <cstddef>
-#include <cstdlib>
-#include <cstring>
-#include <iostream>
-#include <vector>
-#include <thread>
 
 #if defined(_WIN32)
 #ifndef _WIN32_WINNT
@@ -95,16 +96,19 @@ void set_file_time(const char *Infile, time_t otime) {
   }
 }
 
-int read_file(const char *Infile, std::vector<unsigned char> &buf) {
-  FILE *fd = fopen(Infile, "rb");
-  if (!fd) {
-    fclose(fd);
+int read_file(const char *name, uint8_t **out_buf, size_t *out_size) {
+  *out_buf = nullptr;
+  *out_size = 0;
+  struct stat s;
+  if (stat(name, &s) != 0)
     return 1;
-  }
-  long long size = filesize(Infile);
-  buf.resize(size);
-  size_t in_read_size = fread(buf.data(), 1, size, fd);
-  if (in_read_size != size) {
+  FILE *fd = fopen(name, "rb");
+  if (!fd)
+    return 1;
+  *out_buf = (uint8_t *)malloc(s.st_size);
+  *out_size = s.st_size;
+  if (fread(*out_buf, 1, s.st_size, fd) != s.st_size) {
+    free(*out_buf);
     fclose(fd);
     return 1;
   }

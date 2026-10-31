@@ -1,10 +1,9 @@
+#include "ectpng.h"
 #include "gztools.h"
-#include "pngtools.h"
 #include "support.h"
 #include "zipalign/ZipAlign.h"
 #include "zipalign/ZipFile.h"
 #include "zopfli/zopfli_gzip.h"
-#include "zopflipng.h"
 #include <atomic>
 #include <cassert>
 #include <climits>
@@ -37,9 +36,8 @@ static struct Opt {
   bool strict = false;
   bool compress_stored = false;
   bool optimize_inside = false;
-  bool reuse = false;
-  bool all_filters = false;
-  int pal_sort = false;
+  int png_filter = 77;
+  int png_pal_sort = 0;
   char *mt_zip = nullptr; // "0", "phy", "1", "2", "4" and more
 } opt;
 
@@ -66,9 +64,8 @@ static void show_usage() {
     "  --strict           Enable strict losslessness\n"
     "  --compress-stored  Deflate stored ZIP entries (may break some formats like APK)\n"
     "  --optimize-inside  Optimize supported entries inside ZIP\n"
-    "  --reuse            Keep PNG filter and colortype\n"
-    "  --all-filters      Try all PNG filter modes\n"
-    "  --pal-sort N       Try N different PNG palette filtering strategies (N <= 120)\n"
+    "  --png-filter N     PNG filter strategy, (0-4, 6, 11, 77, 79)\n"
+    "  --png-pal-sort N   Try N different PNG palette strategies (0-120)\n"
     "  --mt-zip N         N threads for ZIP entries, N = 0 (all), phy, 1, 2 and more\n"
     "\n"
     "About:\n"
@@ -108,16 +105,18 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
     ret = zout.open(outname, zout_flags);
     assert_with_msg(ret == OK, "unable to open zip file %s", outname);
     for (const std::string &input_file : list) {
-      std::vector<unsigned char> buf_in;
-      assert_with_msg(read_file(input_file.c_str(), buf_in) == 0, "read file failed");
-      unsigned char *out = nullptr;
+      uint8_t *in_buf = nullptr;
+      size_t in_size = 0;
+      assert_with_msg(read_file(input_file.c_str(), &in_buf, &in_size) == 0, "read file failed");
+      std::unique_ptr<uint8_t, decltype(&free)> in_buf_(in_buf, free);
+      uint8_t *out_buf = nullptr;
       size_t out_size = 0;
-      ZopfliBuffer(opt.mode, 0, buf_in.data(), buf_in.size(), &out, &out_size);
+      ZopfliBuffer(opt.mode, 0, in_buf, in_size, &out_buf, &out_size);
+      std::unique_ptr<uint8_t, decltype(&free)> out_buf_(out_buf, free);
       int method = ZipEntry::kCompressDeflated;
       assert_with_msg(out_size < UINT32_MAX, "invalid call");
-      uint64_t compressed_info = (uint64_t)crc32(0L, buf_in.data(), buf_in.size()) << 32 | out_size;
-      ret = zout.add(out, buf_in.size(), input_file.c_str(), method, nullptr, compressed_info);
-      free(out);
+      uint64_t compressed_info = (uint64_t)crc32(0L, in_buf, in_size) << 32 | out_size;
+      ret = zout.add(out_buf, in_size, input_file.c_str(), method, nullptr, compressed_info);
       assert_with_msg(ret == OK, "add zip entry failed");
     }
     return 0;
@@ -146,54 +145,48 @@ static int png_handler(const std::string &input_file, long long input_size, cons
   // origin ect has extra mode support, now removed
   // unsigned _mode = opt.mode;
   // unsigned mode = (opt.mode % 10000) > 9 ? 9 : (opt.mode % 10000);
-  int mode = opt.mode;
-  int mt_deflate = 0;
-  int x = 0;
 
-  std::vector<unsigned char> buf_in;
-  assert_with_msg(read_file(input_file.c_str(), buf_in) == 0, "read file failed");
+  uint8_t *in_buf = nullptr;
+  size_t in_size = 0;
+  assert_with_msg(read_file(input_file.c_str(), &in_buf, &in_size) == 0, "read file failed");
+  // std::unique_ptr<uint8_t, decltype(&free)> in_buf_(in_buf, free);
 
   FILE *fd_out = fopen(outname, "wb");
   assert_with_msg(fd_out, "open output file failed");
   std::unique_ptr<FILE, decltype(&fclose)> fd_out_(fd_out, fclose);
-  std::vector<unsigned char> buf_out;
+  uint8_t *out_buf = nullptr;
+  size_t out_size = 0;
 
-  // mode 9 do extra pre-compress use mode 3
-  if (mode == 9 && !opt.reuse && !opt.all_filters) {
-    x = Zopflipng(opt.strip, buf_in, buf_out, opt.strict, 3, 0, mt_deflate, opt.quiet);
-    assert_with_msg(x == 0, "zopfli png failed with code %d", x);
-    if (buf_out.size() < buf_in.size())
-      std::swap(buf_in, buf_out);
-    buf_out.clear();
-  }
-
-  // inside, it try-compress to detect 0 or 11 is better
-  // 0 = off, 6 = reuse, 11 = incremental
-  int strategies[] = {6, 0, 1, 2, 3, 4, 5, 11};
+  // opt.png_filter = (0-4, 6, 11, 77, 79)
+  // * 77 (default) = auto 0 and 11
+  // * 79 = try all
+  int strategies[] = {6, 0, 1, 2, 3, 4, 11};
   int strategies_len = 1;
-  if (opt.all_filters)
+  if (opt.png_filter != 79)
+    strategies[0] = opt.png_filter;
+  if (opt.png_filter == 79)
     strategies_len = sizeof(strategies) / sizeof(strategies[0]);
-  else if (!opt.reuse)
-    strategies[0] = ZOPFLIPNG_FILTER_AUTO;
   for (int i = 0; i < strategies_len; i++) {
-    int filter_val = strategies[i] + opt.pal_sort;
-    x = Zopflipng(opt.strip, buf_in, buf_out, opt.strict, mode, filter_val, mt_deflate, opt.quiet);
-    assert_with_msg(x == 0, "zopfli png failed with code %d", x);
-    if (buf_out.size() < buf_in.size())
-      std::swap(buf_in, buf_out);
-    buf_out.clear();
+    int filter_opt = strategies[i] | (opt.png_pal_sort << 8);
+    int mt_zopfli = 1; // mt = 1 means no multi thread, just single thread
+    int ect_png_code = ect_png(in_buf, in_size, &out_buf, &out_size, opt.mode, filter_opt,
+                               opt.strip, opt.strict, mt_zopfli);
+    assert_with_msg(ect_png_code == 0, "ect_png failed with code %d", ect_png_code);
+    if (out_size < in_size) {
+      free(in_buf);
+      in_buf = out_buf, in_size = out_size;
+      if (opt.png_filter == 79) {
+        printf("found better filter strategy %d\n", strategies[i]);
+      }
+    } else {
+      free(out_buf);
+    }
+    out_buf = nullptr, out_size = 0;
   }
 
-  if (opt.strip) {
-    assert_with_msg(strip_png(buf_in, buf_out) == 0, "strip PNG failed");
-    std::swap(buf_in, buf_out);
-    buf_out.clear();
-  }
-
-  size_t out_write_size = fwrite(buf_in.data(), 1, buf_in.size(), fd_out); // buf_in already swapped
-  assert_with_msg(out_write_size == buf_in.size(), "write size not match");
-  assert_with_msg(fclose(fd_out_.release()) == 0, "close output file failed");
-
+  size_t out_write_size = fwrite(in_buf, 1, in_size, fd_out); // in_buf already swapped
+  free(in_buf);
+  assert_with_msg(out_write_size == in_size, "write size not match");
   return 0;
 }
 
@@ -372,13 +365,11 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(arg, "--optimize-inside") == 0) {
       opt.optimize_inside = true;
       assert_with_msg(false, "switch --optimize-inside is not implemented yet");
-    } else if (strcmp(arg, "--reuse") == 0) {
-      opt.reuse = true;
-    } else if (strcmp(arg, "--all-filters") == 0) {
-      opt.all_filters = true;
-    } else if (strcmp(arg, "--pal-sort") == 0 && i + 1 < argc) {
-      opt.pal_sort = (int)strtol(argv[i + 1], NULL, 10) << 8;
-      assert_with_msg(opt.pal_sort <= (120 << 8), "out of range --pal-sort");
+    } else if (strcmp(arg, "--png-filter") == 0 && i + 1 < argc) {
+      opt.png_filter = (int)strtol(argv[i + 1], NULL, 10);
+      i++;
+    } else if (strcmp(arg, "--png-pal-sort") == 0 && i + 1 < argc) {
+      opt.png_pal_sort = (int)strtol(argv[i + 1], NULL, 10);
       i++;
     } else if (strcmp(arg, "--mt-zip") == 0 && i + 1 < argc) {
       opt.mt_zip = argv[i + 1];
@@ -394,7 +385,6 @@ int main(int argc, char *argv[]) {
   // switches parsing end
   if (opt.mode == 0)
     opt.mode = 3; // default = 3
-  assert_with_msg(!(opt.reuse && opt.all_filters), "the --reuse and --all-filters are conflicting");
   if (opt.gzip) {
     assert_with_msg(files.size() == 0, "--gzip switch is for stdin");
 #ifdef _WIN32

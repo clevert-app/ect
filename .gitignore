@@ -9,6 +9,7 @@ temp.md
 src/.cache/clangd
 google-zopfli
 inflate_benchmark.cpp
+deflate_utils
 
 # macOS ancillary files
 .DS_Store
