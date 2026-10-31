@@ -1,6 +1,6 @@
 #include "ectpng.h"
 
-#include "deflate_utils/zlib.h"
+#include "deflate_utils/deflate_utils.h"
 #include "png.h"
 #include "zopfli/zlib_container.h"
 
@@ -425,13 +425,13 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
   uint8_t *attempt = (uint8_t *)malloc(stride);
   uint8_t *current = clean ? (uint8_t *)malloc(row_size) : nullptr;
   uint8_t *previous = clean ? (uint8_t *)malloc(row_size) : nullptr;
-  z_stream stream = {}, test = {};
+  u_z_stream stream = {}, test = {};
   if (incremental) {
-    if (deflateInit2(&stream, 2, Z_DEFLATED, window_bits(stride * image.height), 8, Z_FILTERED) !=
+    if (uDeflateInit2(&stream, 2, Z_DEFLATED, window_bits(stride * image.height), 8, Z_FILTERED) !=
         Z_OK)
       fail("deflate initialization failed");
-    deflateTune(&stream, 16, 258, 258, 200);
-    if (deflateCopy(&test, &stream, 1) != Z_OK)
+    uDeflateTune(&stream, 16, 258, 258, 200);
+    if (uDeflateCopy(&test, &stream, 1) != Z_OK)
       fail("deflate copy failed");
   }
   uint8_t dummy;
@@ -453,13 +453,13 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
       filter_row(attempt + 1, line, above, row_size, byte_width, type);
       size_t score = 0;
       if (incremental) {
-        if (deflateCopy(&test, &stream, 0) != Z_OK)
+        if (uDeflateCopy(&test, &stream, 0) != Z_OK)
           fail("deflate copy failed");
         test.next_in = attempt;
         test.avail_in = stride;
         test.next_out = &dummy;
         test.avail_out = UINT_MAX;
-        if (deflate_nooutput(&test, Z_FINISH) != Z_STREAM_END)
+        if (uDeflateNoOutput(&test, Z_FINISH) != Z_STREAM_END)
           fail("trial deflate failed");
         score = test.total_out;
       } else {
@@ -487,13 +487,13 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
       stream.avail_in = stride;
       stream.next_out = &dummy;
       stream.avail_out = UINT_MAX;
-      if (deflate_nooutput(&stream, Z_NO_FLUSH) != Z_OK)
+      if (uDeflateNoOutput(&stream, Z_NO_FLUSH) != Z_OK)
         fail("incremental deflate failed");
     }
   }
   if (incremental) {
-    deflateEnd(&test);
-    deflateEnd(&stream);
+    uDeflateEnd(&test);
+    uDeflateEnd(&stream);
   }
   free(previous);
   free(current);
@@ -502,20 +502,20 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
 }
 
 static size_t trial_size(const uint8_t *data, size_t size) {
-  z_stream stream = {};
+  u_z_stream stream = {};
   if (size > UINT_MAX)
     fail("trial input too large");
-  if (deflateInit2(&stream, 5, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK)
+  if (uDeflateInit2(&stream, 5, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK)
     fail("deflate initialization failed");
   uint8_t dummy;
   stream.next_in = data;
   stream.avail_in = size;
   stream.next_out = &dummy;
   stream.avail_out = UINT_MAX;
-  if (deflate_nooutput(&stream, Z_FINISH) != Z_STREAM_END)
+  if (uDeflateNoOutput(&stream, Z_FINISH) != Z_STREAM_END)
     fail("trial deflate failed");
   size_t result = stream.total_out;
-  deflateEnd(&stream);
+  uDeflateEnd(&stream);
   return result;
 }
 

@@ -114,7 +114,7 @@ if [ "$1" = build ]; then
   [ "$(command -v ccache)" != "" ] && export CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache # ln -sf /media/kkocdko/KK_TMP_1/home/.cache/ccache ~/.cache/ccache
   # > ect
   find build/ -mindepth 1 ! -path 'build/pgo' ! -path 'build/pgo/*' -delete || true # like rm -rf build/*
-  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF # ect use it's custom zlib, so link to system zlib is impossible
+  cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
   cmake --build build
   # llvm-objcopy --strip-all build/ect$([ -e build/ect.exe ] && echo ".exe")
   exit
