@@ -434,7 +434,6 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
     if (uDeflateCopy(&test, &stream, 1) != Z_OK)
       fail("deflate copy failed");
   }
-  uint8_t dummy;
   const uint8_t *above = nullptr;
   for (unsigned row = 0; row < image.height; row++) {
     const uint8_t *source = pixels + row * row_size;
@@ -457,8 +456,6 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
           fail("deflate copy failed");
         test.next_in = attempt;
         test.avail_in = stride;
-        test.next_out = &dummy;
-        test.avail_out = UINT_MAX;
         if (uDeflateNoOutput(&test, Z_FINISH) != Z_STREAM_END)
           fail("trial deflate failed");
         score = test.total_out;
@@ -482,11 +479,9 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
       memcpy(previous, current, row_size);
     }
     above = clean ? previous : source;
-    if (incremental) {
+    if (incremental && row + 1 < image.height) {
       stream.next_in = output + row * stride;
       stream.avail_in = stride;
-      stream.next_out = &dummy;
-      stream.avail_out = UINT_MAX;
       if (uDeflateNoOutput(&stream, Z_NO_FLUSH) != Z_OK)
         fail("incremental deflate failed");
     }
@@ -507,11 +502,8 @@ static size_t trial_size(const uint8_t *data, size_t size) {
     fail("trial input too large");
   if (uDeflateInit2(&stream, 5, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK)
     fail("deflate initialization failed");
-  uint8_t dummy;
   stream.next_in = data;
   stream.avail_in = size;
-  stream.next_out = &dummy;
-  stream.avail_out = UINT_MAX;
   if (uDeflateNoOutput(&stream, Z_FINISH) != Z_STREAM_END)
     fail("trial deflate failed");
   size_t result = stream.total_out;
