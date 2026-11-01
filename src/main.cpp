@@ -64,7 +64,7 @@ static void show_usage() {
     "  --strict           Enable strict losslessness\n"
     "  --compress-stored  Deflate stored ZIP entries (may break some formats like APK)\n"
     "  --optimize-inside  Optimize supported entries inside ZIP\n"
-    "  --png-filter N     PNG filter strategy, (0-4, 6, 11, 77, 79)\n"
+    "  --png-filter N     PNG filter strategy, (0-4, 6, 12, 77, 79)\n"
     "  --png-pal-sort N   Try N different PNG palette strategies (0-120)\n"
     "  --mt-zip N         N threads for ZIP entries, N = 0 (all), phy, 1, 2 and more\n"
     "\n"
@@ -157,10 +157,10 @@ static int png_handler(const std::string &input_file, long long input_size, cons
   uint8_t *out_buf = nullptr;
   size_t out_size = 0;
 
-  // opt.png_filter = (0-4, 6, 11, 77, 79)
-  // * 77 (default) = auto 0 and 11
+  // opt.png_filter = (0-4, 6, 12, 77, 79)
+  // * 77 (default) = auto 0 and 12
   // * 79 = try all
-  int strategies[] = {6, 0, 1, 2, 3, 4, 11};
+  int strategies[] = {6, 0, 1, 2, 3, 4, 12};
   int strategies_len = 1;
   if (opt.png_filter != 79)
     strategies[0] = opt.png_filter;
@@ -168,16 +168,15 @@ static int png_handler(const std::string &input_file, long long input_size, cons
     strategies_len = sizeof(strategies) / sizeof(strategies[0]);
   for (int i = 0; i < strategies_len; i++) {
     int filter_opt = strategies[i] | (opt.png_pal_sort << 8);
-    int mt_zopfli = 1; // mt = 1 means no multi thread, just single thread
+    int mt_zopfli = 1; // mt = 1 means no multi thread, just 1 thread
     int ect_png_code = ect_png(in_buf, in_size, &out_buf, &out_size, opt.mode, filter_opt,
                                opt.strip, opt.strict, mt_zopfli);
     assert_with_msg(ect_png_code == 0, "ect_png failed with code %d", ect_png_code);
     if (out_size < in_size) {
       free(in_buf);
       in_buf = out_buf, in_size = out_size;
-      if (opt.png_filter == 79) {
-        printf("found better filter strategy %d\n", strategies[i]);
-      }
+      if (opt.png_filter == 79)
+        printf("ect_png found better filter strategy %d\n", strategies[i]);
     } else {
       free(out_buf);
     }
