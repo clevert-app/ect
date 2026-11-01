@@ -1,17 +1,286 @@
 #include "ectpng.h"
-
-#include "deflate_utils/deflate_utils.h"
+#include "filter_estimator.h"
 #include "png.h"
+#include "zlib.h"
 #include "zopfli/zlib_container.h"
-
 #include <algorithm>
+#include <array>
 #include <climits>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <unordered_map>
+#include <vector>
+
+namespace filter_estimator {
+
+class FilterEstimator {
+  static constexpr size_t hash_size = 16384;
+  static constexpr size_t short_hash_size = 4096;
+  static constexpr size_t window_size = 32768;
+  static constexpr size_t lookahead = 262;
+
+  struct Counts {
+    std::array<unsigned, 286> literal{};
+    std::array<unsigned, 30> distance{};
+    unsigned symbols = 0, extra_bits = 0, fixed_bits = 0;
+    unsigned bytes = 0;
+    double completed_bits = 0;
+
+    Counts() { literal[256] = 1; }
+
+    double cost() const {
+      static const auto entropy_bits = [] {
+        std::array<double, 16385> values{};
+        for (size_t count = 1; count < values.size(); count++)
+          values[count] = count * std::log2(double(count));
+        return values;
+      }();
+      auto entropy = [](const auto &frequencies) {
+        unsigned total = 0, used = 0, maximum = 0;
+        double bits = 0;
+        for (unsigned count : frequencies) {
+          total += count;
+          used += count != 0;
+          maximum = std::max(maximum, count);
+          bits -= entropy_bits[count];
+        }
+        if (maximum > total / 2)
+          return total + entropy_bits[total - maximum] + bits + entropy_bits[maximum] + used * 3;
+        return total ? std::max(double(total), entropy_bits[total] + bits) + used * 3 : 0;
+      };
+      return completed_bits + std::min(double(fixed_bits + 10),
+                                       entropy(literal) + entropy(distance) + extra_bits + 60);
+    }
+
+    template <bool whole> void finish_symbol(unsigned size) {
+      if constexpr (!whole)
+        bytes += size;
+      if (++symbols == 16383 || (!whole && bytes >= 131072)) {
+        double bits = cost();
+        *this = Counts();
+        completed_bits = bits;
+      }
+    }
+
+    template <bool whole> void add_literal(unsigned value) {
+      literal[value]++;
+      fixed_bits += value < 144 ? 8 : 9;
+      finish_symbol<whole>(1);
+    }
+
+    template <bool whole> void add_match(unsigned length, unsigned offset) {
+      unsigned length_code, length_extra = 0;
+      if (length <= 10)
+        length_code = length + 254;
+      else if (length == 258)
+        length_code = 285;
+      else {
+        length_extra = 29 - __builtin_clz(length - 3);
+        length_code = 257 + 4 * (length_extra + 1) + (((length - 3) >> length_extra) & 3);
+      }
+      unsigned distance_code = offset - 1, distance_extra = 0;
+      if (offset > 4) {
+        distance_extra = 30 - __builtin_clz(offset - 1);
+        distance_code = 2 * (distance_extra + 1) + (((offset - 1) >> distance_extra) & 1);
+      }
+      literal[length_code]++;
+      distance[distance_code]++;
+      extra_bits += length_extra + distance_extra;
+      fixed_bits += (length_code <= 279 ? 7 : 8) + 5 + length_extra + distance_extra;
+      finish_symbol<whole>(length);
+    }
+  };
+
+  std::vector<size_t> heads, trial_heads, best_heads;
+  std::vector<uint16_t> previous, trial_previous, best_previous;
+  std::vector<size_t> short_heads, trial_short_heads, best_short_heads;
+  Counts counts, candidate_counts, best_counts;
+  size_t next_position = 0, candidate_end = 0, best_end = 0;
+
+  static size_t hash(const uint8_t *data) {
+    uint32_t value;
+    memcpy(&value, data, sizeof(value));
+    return (value * 0x1e35a7bdU) >> 18;
+  }
+
+  static size_t short_hash(const uint8_t *data) {
+    uint32_t value = uint32_t(data[0]) | uint32_t(data[1]) << 8 | uint32_t(data[2]) << 16;
+    return (value * 0x1e35a7bdU) >> 20;
+  }
+
+  template <bool whole> double evaluate(const uint8_t *data, size_t end) {
+    if constexpr (!whole) {
+      trial_heads = heads;
+      trial_short_heads = short_heads;
+    }
+    auto &active_heads = whole ? heads : trial_heads;
+    auto &active_short_heads = whole ? short_heads : trial_short_heads;
+    auto &active_previous = whole ? previous : trial_previous;
+    auto previous_index = [&](size_t position) {
+      return whole ? position & (window_size - 1) : position - next_position;
+    };
+    Counts trial = counts;
+    size_t first = next_position;
+    candidate_counts = counts;
+    candidate_end = first;
+    bool tail = false;
+    struct UndoEntry {
+      size_t index, short_index, head, short_head;
+    };
+    std::array<UndoEntry, lookahead> undo;
+    size_t undo_count = 0;
+    struct MatchHeads {
+      size_t match, short_match;
+    };
+    auto insert = [&](size_t position) {
+      size_t index = hash(data + position);
+      size_t short_index = short_hash(data + position);
+      size_t match = active_heads[index];
+      size_t short_match = active_short_heads[short_index];
+      if (tail)
+        undo[undo_count++] = {index, short_index, match, short_match};
+      active_previous[previous_index(position)] =
+          match ? std::min(position + 1 - match, window_size + 1) : 0;
+      active_heads[index] = position + 1;
+      active_short_heads[short_index] = position + 1;
+      return MatchHeads{match, short_match};
+    };
+    size_t position = first;
+    while (position < end) {
+      if (!whole && !tail && end - position < lookahead) {
+        candidate_counts = trial;
+        candidate_end = position;
+        tail = true;
+      }
+      MatchHeads matches{};
+      if (end - position >= 4)
+        matches = insert(position);
+      else if (end - position >= 3)
+        matches.short_match = active_short_heads[short_hash(data + position)];
+      size_t match = matches.match;
+      size_t best_length = 3, best_distance = 0;
+      size_t limit = std::min(size_t(258), end - position);
+      unsigned probes = 16;
+      for (unsigned depth = 0; match && depth < probes; depth++) {
+        size_t offset = match - 1;
+        if (position - offset > window_size)
+          break;
+        if (data[offset + best_length] == data[position + best_length] &&
+            memcmp(data + offset, data + position, 4) == 0) {
+          size_t length = 4;
+          while (length + 8 <= limit) {
+            uint64_t left, right;
+            memcpy(&left, data + offset + length, 8);
+            memcpy(&right, data + position + length, 8);
+            if (left != right) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+              length += __builtin_clzll(left ^ right) / 8;
+#else
+              length += __builtin_ctzll(left ^ right) / 8;
+#endif
+              break;
+            }
+            length += 8;
+          }
+          while (length < limit && data[offset + length] == data[position + length])
+            length++;
+          if (length > best_length) {
+            best_length = length;
+            best_distance = position - offset;
+            if (length >= 32)
+              probes = 8;
+            if (length == limit)
+              break;
+          }
+        }
+        size_t step = whole || offset >= first ? active_previous[previous_index(offset)]
+                                               : previous[offset & (window_size - 1)];
+        match = step && step <= offset ? offset - step + 1 : 0;
+      }
+      if (!best_distance && matches.short_match && position - (matches.short_match - 1) < 8192 &&
+          memcmp(data + position, data + matches.short_match - 1, 3) == 0) {
+        best_length = 3;
+        best_distance = position - (matches.short_match - 1);
+      }
+      if (best_distance) {
+        trial.add_match<whole>(best_length, best_distance);
+        size_t stop = std::min(position + best_length, end - 3);
+        uint32_t prefix = 0;
+        if (stop - position > 16)
+          memcpy(&prefix, data + position, sizeof(prefix));
+        if (stop - position > 16 && prefix == data[position] * 0x01010101U &&
+            memcmp(data + position, data + position + 1, stop - position + 2) == 0) {
+          size_t index = hash(data + position);
+          size_t short_index = short_hash(data + position);
+          if (tail)
+            undo[undo_count++] = {index, short_index, active_heads[index],
+                                  active_short_heads[short_index]};
+          for (size_t inserted = position + 1; inserted < stop; inserted++)
+            active_previous[previous_index(inserted)] = 1;
+          active_heads[index] = stop;
+          active_short_heads[short_index] = stop;
+        } else {
+          for (size_t inserted = position + 1; inserted < stop; inserted++)
+            insert(inserted);
+        }
+        position += best_length;
+      } else {
+        trial.add_literal<whole>(data[position]);
+        position++;
+      }
+    }
+    while (undo_count) {
+      const auto &entry = undo[--undo_count];
+      active_heads[entry.index] = entry.head;
+      active_short_heads[entry.short_index] = entry.short_head;
+    }
+    return trial.cost();
+  }
+
+public:
+  explicit FilterEstimator(size_t row_size)
+      : heads(row_size ? hash_size : 0), trial_heads(heads.size()), best_heads(heads.size()),
+        previous(row_size ? window_size : 0), trial_previous(row_size ? row_size + lookahead : 0),
+        best_previous(trial_previous.size()), short_heads(row_size ? short_hash_size : 0),
+        trial_short_heads(short_heads.size()), best_short_heads(short_heads.size()) {}
+
+  double score(const uint8_t *data, size_t end) { return evaluate<false>(data, end); }
+
+  static double estimate(const uint8_t *data, size_t size) {
+    FilterEstimator estimator(0);
+    estimator.heads.resize(hash_size);
+    estimator.short_heads.resize(short_hash_size);
+    estimator.previous.resize(window_size);
+    return estimator.evaluate<true>(data, size);
+  }
+
+  void keep() {
+    best_heads.swap(trial_heads);
+    best_previous.swap(trial_previous);
+    best_short_heads.swap(trial_short_heads);
+    best_counts = candidate_counts;
+    best_end = candidate_end;
+  }
+
+  void commit() {
+    heads.swap(best_heads);
+    short_heads.swap(best_short_heads);
+    counts = best_counts;
+    size_t oldest = best_end > window_size ? best_end - window_size : 0;
+    for (size_t inserted = std::max(next_position, oldest); inserted < best_end; inserted++)
+      previous[inserted & (window_size - 1)] = best_previous[inserted - next_position];
+    next_position = best_end;
+  }
+};
+
+} // namespace filter_estimator
 
 namespace {
+
+using namespace filter_estimator;
 
 struct Buffer {
   uint8_t *data = nullptr;
@@ -396,14 +665,6 @@ static void clean_row(uint8_t *row, const uint8_t *previous, size_t size, unsign
   }
 }
 
-static int window_bits(size_t size) {
-  int bits = 0;
-  do {
-    bits++;
-  } while (size >>= 1);
-  return -std::max(9, std::min(15, bits));
-}
-
 static uint8_t *filter_image(const Image &image, const Color &color, const uint8_t *pixels,
                              int strategy, bool strict) {
   size_t row_size = row_bytes(image, color), stride = row_size + 1;
@@ -421,27 +682,20 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
   }
   // allow to use clean_row to modified alpha 0 pixels' rgb, for better filter result
   bool clean = !strict && color.type == PNG_COLOR_TYPE_RGBA && color.depth == 8;
-  bool incremental = strategy == 11;
+  bool estimated = strategy == 12;
+  FilterEstimator estimator(estimated ? stride : 0);
+  std::vector<uint8_t> best_row(estimated ? stride : 0);
   uint8_t *attempt = (uint8_t *)malloc(stride);
   uint8_t *current = clean ? (uint8_t *)malloc(row_size) : nullptr;
   uint8_t *previous = clean ? (uint8_t *)malloc(row_size) : nullptr;
-  u_z_stream stream = {}, test = {};
-  if (incremental) {
-    if (uDeflateInit2(&stream, 2, Z_DEFLATED, window_bits(stride * image.height), 8, Z_FILTERED) !=
-        Z_OK)
-      fail("deflate initialization failed");
-    uDeflateTune(&stream, 16, 258, 258, 200);
-    if (uDeflateCopy(&test, &stream, 1) != Z_OK)
-      fail("deflate copy failed");
-  }
   const uint8_t *above = nullptr;
   for (unsigned row = 0; row < image.height; row++) {
     const uint8_t *source = pixels + row * row_size;
-    size_t smallest = SIZE_MAX;
+    double smallest = HUGE_VAL;
     unsigned best = 0;
     for (unsigned candidate = 0; candidate < 5; candidate++) {
-      // Incremental ties prefer Paeth; minsum ties prefer None, as before.
-      unsigned type = incremental ? 4 - candidate : candidate;
+      // Estimate ties prefer Paeth; minsum ties prefer None, as before.
+      unsigned type = estimated ? 4 - candidate : candidate;
       const uint8_t *line = source;
       if (clean) {
         memcpy(current, source, row_size);
@@ -450,15 +704,12 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
       }
       attempt[0] = type;
       filter_row(attempt + 1, line, above, row_size, byte_width, type);
-      size_t score = 0;
-      if (incremental) {
-        if (uDeflateCopy(&test, &stream, 0) != Z_OK)
-          fail("deflate copy failed");
-        test.next_in = attempt;
-        test.avail_in = stride;
-        if (uDeflateNoOutput(&test, Z_FINISH) != Z_STREAM_END)
-          fail("trial deflate failed");
-        score = test.total_out;
+      double score = 0;
+      if (estimated) {
+        memcpy(output + row * stride, attempt, stride);
+        score = estimator.score(output, (row + 1) * stride);
+        if (row && type == output[(row - 1) * stride])
+          score -= 4;
       } else {
         // Preserve LodePNG's 255-value heuristic (libpng uses 256-value),
         // and unsigned scoring for filter None.
@@ -470,25 +721,21 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
       if (score < smallest) {
         smallest = score;
         best = type;
-        memcpy(output + row * stride, attempt, stride);
+        if (estimated)
+          estimator.keep();
+        memcpy(estimated ? best_row.data() : output + row * stride, attempt, stride);
       }
     }
+    if (estimated)
+      memcpy(output + row * stride, best_row.data(), stride);
     if (clean) {
       memcpy(current, source, row_size);
       clean_row(current, above, row_size, best);
       memcpy(previous, current, row_size);
     }
     above = clean ? previous : source;
-    if (incremental && row + 1 < image.height) {
-      stream.next_in = output + row * stride;
-      stream.avail_in = stride;
-      if (uDeflateNoOutput(&stream, Z_NO_FLUSH) != Z_OK)
-        fail("incremental deflate failed");
-    }
-  }
-  if (incremental) {
-    uDeflateEnd(&test);
-    uDeflateEnd(&stream);
+    if (estimated && row + 1 < image.height)
+      estimator.commit();
   }
   free(previous);
   free(current);
@@ -496,19 +743,8 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
   return output;
 }
 
-static size_t trial_size(const uint8_t *data, size_t size) {
-  u_z_stream stream = {};
-  if (size > UINT_MAX)
-    fail("trial input too large");
-  if (uDeflateInit2(&stream, 5, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK)
-    fail("deflate initialization failed");
-  stream.next_in = data;
-  stream.avail_in = size;
-  if (uDeflateNoOutput(&stream, Z_FINISH) != Z_STREAM_END)
-    fail("trial deflate failed");
-  size_t result = stream.total_out;
-  uDeflateEnd(&stream);
-  return result;
+static size_t estimate_size(const uint8_t *data, size_t size) {
+  return size_t(std::ceil(FilterEstimator::estimate(data, size) / 8));
 }
 
 static void write_chunk(png_structp png, const char *name, const uint8_t *data, size_t size) {
@@ -607,7 +843,7 @@ static Buffer compress_image(const Image &image, const Color &color, int strateg
   if (options)
     ZopfliZlibCompress(options, filtered, size, &compressed.data, &compressed.size);
   else
-    compressed.size = trial_size(filtered, size) + 6; // keep compressed.data as nullptr
+    compressed.size = estimate_size(filtered, size) + 6; // keep compressed.data as nullptr
   free(filtered);
   return compressed;
 }
@@ -672,8 +908,8 @@ int ect_png(const uint8_t *in_buf, size_t in_size, uint8_t **out_buf, size_t *ou
     fprintf(stderr, "PNG palette sorting is not implemented yet\n");
     return 1;
   }
-  // can be: 0 (none), 1 2 3 4 (png native), 6 (reuse), 11 (incremental), 77 (auto)
-  if (strategy > 4 && strategy != 6 && strategy != 11 && strategy != 77)
+  // can be: 0 (none), 1 2 3 4 (png native), 6 (reuse), 12 (estimate), 77 (auto)
+  if (strategy > 4 && strategy != 6 && strategy != 12 && strategy != 77)
     return 1;
   if (in_size < 33 || png_sig_cmp(in_buf, 0, 8))
     return 1;
@@ -703,14 +939,14 @@ int ect_png(const uint8_t *in_buf, size_t in_size, uint8_t **out_buf, size_t *ou
     reduce_depth(&image);
     color = choose_color(image, mode);
     if (strategy == 77) {
-      // compare the 0 and 10, if 10 is better, choose 11, otherwise, choose 0
+      // Compare 0 and 10; if 10 is better, choose 12, otherwise choose 0.
       Color c_0 = color;
       Buffer b_0 = try_compress(image, &c_0, 0, strict, mode, nullptr);
       size_t size_0 = b_0.size + png_overhead(c_0);
       Color c_10 = color;
       Buffer b_10 = try_compress(image, &c_10, 10, strict, mode, nullptr);
       size_t size_10 = b_10.size + png_overhead(c_10);
-      strategy = size_10 < size_0 * (mode > 4 ? 1.015 : 1.0) ? 11 : 0;
+      strategy = size_10 < size_0 ? 12 : 0;
     }
     compressed = try_compress(image, &color, strategy, strict, mode, &options);
   }
