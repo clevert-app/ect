@@ -12,8 +12,8 @@
 #ifndef _WIN32
 #include <unistd.h>
 #endif
-#include <time.h>
-#include <vector>
+#include <cstdint>
+#include <ctime>
 
 // Returns Filesize of Infile
 long long filesize (const char * Infile);
@@ -30,7 +30,7 @@ time_t get_file_time(const char* Infile);
 
 void set_file_time(const char* Infile, time_t otime);
 
-int read_file(const char *Infile, std::vector<unsigned char> &buf);
+int read_file(const char *name, uint8_t **out_buf, size_t *out_size);
 
 int get_phy_core_count();
 

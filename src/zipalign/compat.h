@@ -65,23 +65,6 @@ namespace zip_archive {
   struct Reader {};
   struct Writer { virtual bool Append(uint8_t* buf, size_t buf_size) = 0; };
 }
-inline int getEnvZopfliLevel() {
-  static const int ret = []() {
-    const char* s = getenv("ZIPALIGN_ZOPFLI_LEVEL");
-    int v = s ? int(strtol(s, NULL, 10)) : -1;
-    return (3 <= v && v <= 9) ? v : 4; // 3-9 , default = 4
-  }();
-  return ret;
-}
-inline int getEnvThreadsCount() {
-  static const int ret = []() {
-    const char* s = getenv("ZIPALIGN_THREADS_COUNT");
-    if (s == NULL) return 1;
-    if (strcmp(s, "phy") == 0) return get_phy_core_count();
-    int v = int(strtol(s, NULL, 10));
-    v = v == 0 ? int(std::thread::hardware_concurrency()) : v;
-    return v >= 1 ? v : 1;
-  }();
-  return ret;
-}
+int zipalign_get_zopfli_level();
+int zipalign_get_threads_count();
 #endif

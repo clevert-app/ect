@@ -3,7 +3,8 @@ project(ect VERSION 2.1.1 LANGUAGES CXX C)
 cmake_policy(SET CMP0048 NEW)
 cmake_policy(SET CMP0074 NEW) # allow use of ZLIB_ROOT
 cmake_policy(SET CMP0135 NEW) # timestamp does not matter for local external project
-set (CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_C_STANDARD 17)
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libpng/png.c")
   message (FATAL_ERROR "third_party/libpng not initialized")
 endif()
@@ -20,20 +21,20 @@ option(ECT_LIBJXL_SUPPORT "The libjxl (and jpegli) support" OFF)
 
 add_executable(ect
   main.cpp
-  pngtools.cpp
   gztools.cpp
   LzFind.c
   support.cpp
-  zopflipng.cpp
+  ectpng.cpp
   # add headers so they get added to things like xcode projects
   gztools.h
   LzFind.h
   support.h
+  ectpng.h
 )
 add_executable(ect::ect ALIAS ect)
 target_include_directories(ect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Allow Win32 ANSI APIs like CreateFileA to use UTF-8 path 
+# Allow Win32 ANSI APIs like CreateFileA to use UTF-8 path
 if(WIN32)
   enable_language(RC)
   file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/utf8.manifest" CONTENT [=[<?xml version="1.0" encoding="UTF-8" standalone="yes"?><assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0"><assemblyIdentity type="win32" name="ect" version="1.0.0.0" processorArchitecture="*" /><application xmlns="urn:schemas-microsoft-com:asm.v3"><windowsSettings><activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage></windowsSettings></application></assembly>]=])
@@ -52,25 +53,18 @@ if(NOT MSVC)
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64|x64)")
-  add_definitions(-DADLER32_SIMD_SSSE3) # zlib enable vector extensions
-  add_definitions(-DINFLATE_CHUNK_SIMD_SSE2)
-  add_definitions(-DINFLATE_CHUNK_READ_64LE)
-  add_definitions(-DHAS_PCLMUL)
   add_definitions(-DHWY_BASELINE_TARGETS=HWY_AVX2)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=x86-64-v3 -maes -mpclmul") # the mpclmul is not inside x86-64-v3
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=x86-64-v3 -maes -mpclmul")
 endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)")
-  add_definitions(-DADLER32_SIMD_NEON)
-  add_definitions(-DINFLATE_CHUNK_SIMD_NEON)
-  add_definitions(-DINFLATE_CHUNK_READ_64LE)
   add_definitions(-DHWY_BASELINE_TARGETS=HWY_NEON)
-  set(PNG_ARM_NEON "on")
+  set(PNG_ARM_NEON "on") # really useful or not?
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8.1-a") # for mac-arm64, may need mcpu=apple-m1
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8.1-a")
 endif()
 
-# On windows use miniz zlib compatible api, on linux/macos link to system zlib.
+# On windows use miniz zlib compatible api, on linux/macos link to system zlib
 set(ZLIB_INCLUDE_DIR "third_party/miniz" CACHE PATH "zlib header directory" FORCE)
 include_directories("third_party/miniz")
 if(WIN32)
@@ -114,14 +108,12 @@ add_library(GIF::GIF ALIAS giflib)
 set(GIF_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/giflib")
 set(GIF_LIBRARY GIF::GIF)
 
-add_subdirectory(lodepng EXCLUDE_FROM_ALL)
 add_subdirectory(zopfli EXCLUDE_FROM_ALL)
 
 target_link_libraries(ect
   ZLIB::ZLIB
   PNG::PNG
   GIF::GIF
-  lodepng::lodepng
   zopfli::zopfli
 )
 

@@ -2,13 +2,17 @@
 *.o
 *.a
 *.tmp
+*.bak
 temp
 temp.md
 **/build
 **/third_party
 src/.cache/clangd
-google-zopfli
-inflate_benchmark.cpp
+src/google-zopfli
+src/inflate_benchmark.cpp
+src/deflate_utils
+src/benchmarks
+src/filter_benchmark.cpp
 
 # macOS ancillary files
 .DS_Store
