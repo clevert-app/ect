@@ -1,5 +1,4 @@
 #include "ectpng.h"
-#include "filter_estimator.h"
 #include "png.h"
 #include "zlib.h"
 #include "zopfli/zlib_container.h"
@@ -12,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace filter_estimator {
@@ -26,7 +26,7 @@ class FilterEstimator {
     std::array<unsigned, 286> literal{};
     std::array<unsigned, 30> distance{};
     unsigned symbols = 0, extra_bits = 0, fixed_bits = 0;
-    unsigned bytes = 0;
+    unsigned bytes = 0, recent_distance = 0;
     double completed_bits = 0;
 
     Counts() { literal[256] = 1; }
@@ -60,7 +60,9 @@ class FilterEstimator {
         bytes += size;
       if (++symbols == 16383 || (!whole && bytes >= 131072)) {
         double bits = cost();
+        unsigned saved_distance = recent_distance;
         *this = Counts();
+        recent_distance = saved_distance;
         completed_bits = bits;
       }
     }
@@ -72,6 +74,8 @@ class FilterEstimator {
     }
 
     template <bool whole> void add_match(unsigned length, unsigned offset) {
+      if constexpr (!whole)
+        recent_distance = offset;
       unsigned length_code, length_extra = 0;
       if (length <= 10)
         length_code = length + 254;
@@ -98,7 +102,7 @@ class FilterEstimator {
   std::vector<uint16_t> previous, trial_previous, best_previous;
   std::vector<size_t> short_heads, trial_short_heads, best_short_heads;
   Counts counts, candidate_counts, best_counts;
-  size_t next_position = 0, candidate_end = 0, best_end = 0;
+  size_t next_position = 0, candidate_end = 0, best_end = 0, row_stride;
 
   static size_t hash(const uint8_t *data) {
     uint32_t value;
@@ -163,6 +167,26 @@ class FilterEstimator {
       size_t match = matches.match;
       size_t best_length = 3, best_distance = 0;
       size_t limit = std::min(size_t(258), end - position);
+      auto match_length = [&](size_t offset) {
+        size_t length = 4;
+        while (length + 8 <= limit) {
+          uint64_t left, right;
+          memcpy(&left, data + offset + length, 8);
+          memcpy(&right, data + position + length, 8);
+          if (left != right) {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+            length += __builtin_clzll(left ^ right) / 8;
+#else
+            length += __builtin_ctzll(left ^ right) / 8;
+#endif
+            break;
+          }
+          length += 8;
+        }
+        while (length < limit && data[offset + length] == data[position + length])
+          length++;
+        return length;
+      };
       unsigned probes = 16;
       for (unsigned depth = 0; match && depth < probes; depth++) {
         size_t offset = match - 1;
@@ -170,23 +194,7 @@ class FilterEstimator {
           break;
         if (data[offset + best_length] == data[position + best_length] &&
             memcmp(data + offset, data + position, 4) == 0) {
-          size_t length = 4;
-          while (length + 8 <= limit) {
-            uint64_t left, right;
-            memcpy(&left, data + offset + length, 8);
-            memcpy(&right, data + position + length, 8);
-            if (left != right) {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-              length += __builtin_clzll(left ^ right) / 8;
-#else
-              length += __builtin_ctzll(left ^ right) / 8;
-#endif
-              break;
-            }
-            length += 8;
-          }
-          while (length < limit && data[offset + length] == data[position + length])
-            length++;
+          size_t length = match_length(offset);
           if (length > best_length) {
             best_length = length;
             best_distance = position - offset;
@@ -199,6 +207,24 @@ class FilterEstimator {
         size_t step = whole || offset >= first ? active_previous[previous_index(offset)]
                                                : previous[offset & (window_size - 1)];
         match = step && step <= offset ? offset - step + 1 : 0;
+      }
+      if constexpr (!whole) {
+        for (size_t distance : {row_stride, size_t(trial.recent_distance)}) {
+          if (!distance || distance > window_size || position < distance ||
+              limit < 4 || distance == best_distance ||
+              (best_length == limit && distance >= best_distance))
+            continue;
+          size_t offset = position - distance;
+          if (data[offset + best_length - 1] == data[position + best_length - 1] &&
+              memcmp(data + offset, data + position, 4) == 0) {
+            size_t length = match_length(offset);
+            if (length > best_length ||
+                (length == best_length && distance < best_distance)) {
+              best_length = length;
+              best_distance = distance;
+            }
+          }
+        }
       }
       if (!best_distance && matches.short_match && position - (matches.short_match - 1) < 8192 &&
           memcmp(data + position, data + matches.short_match - 1, 3) == 0) {
@@ -241,11 +267,12 @@ class FilterEstimator {
   }
 
 public:
-  explicit FilterEstimator(size_t row_size)
+  explicit FilterEstimator(size_t row_size, size_t stride_hint = 0)
       : heads(row_size ? hash_size : 0), trial_heads(heads.size()), best_heads(heads.size()),
         previous(row_size ? window_size : 0), trial_previous(row_size ? row_size + lookahead : 0),
         best_previous(trial_previous.size()), short_heads(row_size ? short_hash_size : 0),
-        trial_short_heads(short_heads.size()), best_short_heads(short_heads.size()) {}
+        trial_short_heads(short_heads.size()), best_short_heads(short_heads.size()),
+        row_stride(stride_hint ? stride_hint : row_size) {}
 
   double score(const uint8_t *data, size_t end) { return evaluate<false>(data, end); }
 
@@ -666,7 +693,7 @@ static void clean_row(uint8_t *row, const uint8_t *previous, size_t size, unsign
 }
 
 static uint8_t *filter_image(const Image &image, const Color &color, const uint8_t *pixels,
-                             int strategy, bool strict) {
+                             int strategy, bool strict, bool warm_start = true) {
   size_t row_size = row_bytes(image, color), stride = row_size + 1;
   size_t byte_width = (channels(color) * color.depth + 7) / 8;
   uint8_t *output = alloc_filtered(stride * image.height);
@@ -683,13 +710,63 @@ static uint8_t *filter_image(const Image &image, const Color &color, const uint8
   // allow to use clean_row to modified alpha 0 pixels' rgb, for better filter result
   bool clean = !strict && color.type == PNG_COLOR_TYPE_RGBA && color.depth == 8;
   bool estimated = strategy == 12;
+  unsigned opening_rows = estimated && warm_start
+      ? std::min(size_t(image.height), size_t(32768) / stride) : 0;
+  size_t opening_size = opening_rows >= 2 ? opening_rows * stride : 0;
   FilterEstimator estimator(estimated ? stride : 0);
   std::vector<uint8_t> best_row(estimated ? stride : 0);
-  uint8_t *attempt = (uint8_t *)malloc(stride);
+  uint8_t *attempt = (uint8_t *)malloc(std::max(stride, opening_size));
   uint8_t *current = clean ? (uint8_t *)malloc(row_size) : nullptr;
   uint8_t *previous = clean ? (uint8_t *)malloc(row_size) : nullptr;
   const uint8_t *above = nullptr;
-  for (unsigned row = 0; row < image.height; row++) {
+  unsigned first_row = 0;
+  if (opening_size) {
+    Image opening_image = image;
+    opening_image.height = opening_rows;
+    uint8_t *seed = filter_image(opening_image, color, pixels, strategy, strict, false);
+    memcpy(output, seed, opening_size);
+    free(seed);
+    FilterEstimator opening(opening_size, stride);
+    double smallest = opening.score(output, opening_size);
+    opening.keep();
+    for (unsigned candidate = 0; candidate < 5; candidate++) {
+      const uint8_t *prefix_above = nullptr;
+      for (unsigned row = 0; row < opening_rows; row++) {
+        const uint8_t *line = pixels + row * row_size;
+        unsigned type = row ? 4 - candidate : output[0];
+        if (clean) {
+          memcpy(current, line, row_size);
+          clean_row(current, prefix_above, row_size, type);
+          line = current;
+        }
+        attempt[row * stride] = type;
+        filter_row(attempt + row * stride + 1, line, prefix_above, row_size, byte_width, type);
+        if (clean)
+          memcpy(previous, current, row_size);
+        prefix_above = clean ? previous : line;
+      }
+      double score = opening.score(attempt, opening_size);
+      if (score < smallest) {
+        smallest = score;
+        opening.keep();
+        memcpy(output, attempt, opening_size);
+      }
+    }
+    for (unsigned row = 0; row < opening_rows; row++) {
+      const uint8_t *line = pixels + row * row_size;
+      if (clean) {
+        memcpy(current, line, row_size);
+        clean_row(current, above, row_size, output[row * stride]);
+        memcpy(previous, current, row_size);
+      }
+      above = clean ? previous : line;
+    }
+    if (opening_rows < image.height)
+      opening.commit();
+    estimator = std::move(opening);
+    first_row = opening_rows;
+  }
+  for (unsigned row = first_row; row < image.height; row++) {
     const uint8_t *source = pixels + row * row_size;
     double smallest = HUGE_VAL;
     unsigned best = 0;

@@ -2,6 +2,7 @@
 *.o
 *.a
 *.tmp
+*.bak
 temp
 temp.md
 **/build
