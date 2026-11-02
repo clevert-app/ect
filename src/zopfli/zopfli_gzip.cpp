@@ -28,6 +28,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "util.h"
 #include "zopfli.h"
 #include "zlib_container.h"
+#include <climits>
 #include <ctime>
 #include <cstring>
 #include <string>

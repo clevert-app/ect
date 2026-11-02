@@ -8,4 +8,5 @@
 -I./third_party/miniz
 -I./third_party/libpng
 -I./build/third_party/libpng
+-I./build/third_party/zlib-ng
 # please --background-index=false

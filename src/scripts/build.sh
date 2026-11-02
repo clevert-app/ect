@@ -4,30 +4,18 @@ trap exit INT
 type git tar zstd make cmake ninja nasm > /dev/null
 
 if [ "$1" = fetch ]; then
-  # > miniz
-  rm -rf third_party/miniz
-  mkdir -p third_party/miniz
-  t=third_party/fetch.miniz_3_1_2.zip
-  [ -e $t ] || curl -o $t -L https://github.com/richgel999/miniz/releases/download/3.1.2/miniz-3.1.2.zip
-  unzip -q -o -d third_party/miniz $t
-  sed -i.bak -E \
-    -e '/\*(mz_alloc_func|alloc_func)\)|miniz_def_alloc_func\(/s/size_t /unsigned int /g' \
-    -e 's/MZ_MALLOC\(items \*/MZ_MALLOC((size_t)items */' \
-    third_party/miniz/miniz.h third_party/miniz/miniz.c
-  t=third_party/fetch.zlib_3_1_2_zconf.h
-  [ -e $t ] || curl -o $t -L https://github.com/madler/zlib/raw/refs/tags/v1.3.2/zconf.h
-  cp $t third_party/miniz/zconf.h
-  t=third_party/fetch.zlib_3_1_2_zlib.h
-  [ -e $t ] || curl -o $t -L https://github.com/madler/zlib/raw/refs/tags/v1.3.2/zlib.h
-  cp $t third_party/miniz/real_zlib.h
-  printf '#pragma once\n#include <stdint.h>\n#if defined(_WIN32)\n#define z_const const\n#include "./miniz.h"\n#else\n#include "./real_zlib.h"\n#endif\n' > third_party/miniz/zlib.h
+  # > zlib-ng
+  rm -rf third_party/zlib-ng
+  mkdir -p third_party/zlib-ng
+  t=third_party/fetch.zlib-ng_2-3-3.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/zlib-ng/zlib-ng/archive/refs/tags/2.3.3.tar.gz
+  tar -xf $t --strip-components 1 -C third_party/zlib-ng
   # > libpng
   rm -rf third_party/libpng
   mkdir -p third_party/libpng
   t=third_party/fetch.libpng_1_6_59.tar.gz
   [ -e $t ] || curl -o $t -L https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.59.tar.gz
   tar -xf $t --strip-components 1 -C third_party/libpng
-  sed -i.bak 's/#if ZLIB_VERNUM >= 0x1240/#if ZLIB_VERNUM >= 0x1240 \&\& !defined(MZ_VERSION)/' third_party/libpng/pngpriv.h third_party/libpng/pngrutil.c
   # > giflib
   rm -rf third_party/giflib
   mkdir -p third_party/giflib
@@ -144,23 +132,26 @@ if [ "$1" = profile ]; then
     rm -rf $res
     cp -a $res_bak $res
     export LLVM_PROFILE_FILE=build/pgo/$i.%m.profraw
-    # profile cwebp -lossless pgo/res/003.png -o pgo/res/003.webp # to webp lossless
-    # profile cwebp -lossless -sharp_yuv -m 6 pgo/res/001.png -o pgo/res/001.webp
-    # profile cwebp -crop 100 200 1920 1080 pgo/res/002.png -o pgo/res/002.1.webp # to webp lossy
-    # profile cwebp -crop 700 640 1280 720 pgo/res/002.png -o pgo/res/002.2.webp
-    # profile dwebp -resize 1280 720 pgo/res/002.1.webp -o pgo/res/002.3.png # webp decode and resize
-    # profile img2webp -lossy -sharp_yuv -m 6 pgo/res/002.3.png pgo/res/002.2.webp pgo/res/002.3.png -o pgo/res/002.323.webp # to webp animated
-    # profile webpinfo pgo_res/002.323.webp
-    # profile cjxl --num_threads=4 -q 100 -e 8 pgo/res/001.png pgo/res/001.jxl # mathematically lossless
-    # profile cjxl --num_threads=4 -q 68 pgo/res/002.png pgo/res/002.jxl
-    # profile cjxl --num_threads=4 -q 85 -e 8 pgo/res/003.png pgo/res/003.jxl
-    # profile cjxl --num_threads=1 pgo/res/006.gif pgo/res/006.jxl
-    # profile djxl --num_threads=4 --pixels_to_jpeg pgo/res/002.jxl pgo/res/002.jpeg # to normal jpeg
-    # profile jxlinfo pgo/res/002.jxl
-    # profile cjpegli -q 75 pgo/res/001.png pgo/res/001.jpegli.jpeg
-    # profile cjpegli -q 60 pgo/res/002.png pgo/res/002.jpegli.jpeg
-    # profile cjpegli -q 85 pgo/res/003.png pgo/res/003.jpegli.jpeg
-    # profile djpegli pgo/res/002.jpegli.jpeg pgo/res/002.jpegli.png
+    if false; then
+    time -p build/ect --as cwebp -lossless $res/003.png -o $res/003.webp # to webp lossless
+    time -p build/ect --as cwebp -lossless -sharp_yuv -m 6 $res/001.png -o $res/001.webp
+    time -p build/ect --as cwebp -crop 100 200 1920 1080 $res/002.png -o $res/002.1.webp # to webp lossy
+    time -p build/ect --as cwebp -crop 700 640 1280 720 $res/002.png -o $res/002.2.webp
+    time -p build/ect --as dwebp -resize 1280 720 $res/002.1.webp -o $res/002.3.png # webp decode and resize
+    time -p build/ect --as img2webp -lossy -sharp_yuv -m 6 $res/002.3.png $res/002.2.webp $res/002.3.png -o $res/002.323.webp # to webp animated
+    time -p build/ect --as webpinfo pgo_res/002.323.webp
+    time -p build/ect --as cjxl --num_threads=3 -q 100 -e 8 $res/001.png $res/001.jxl # mathematically lossless
+    time -p build/ect --as cjxl --num_threads=3 -q 68 $res/002.png $res/002.jxl
+    time -p build/ect --as cjxl --num_threads=3 -q 85 -e 8 $res/003.png $res/003.jxl
+    time -p build/ect --as cjxl --num_threads=1 $res/006.gif $res/006.jxl
+    time -p build/ect --as djxl --num_threads=3 --pixels_to_jpeg $res/002.jxl $res/002.jpeg # to normal jpeg
+    time -p build/ect --as jxlinfo $res/002.jxl
+    time -p build/ect --as cjpegli -q 75 $res/001.png $res/001.jpegli.jpeg
+    time -p build/ect --as cjpegli -q 60 $res/002.png $res/002.jpegli.jpeg
+    time -p build/ect --as cjpegli -q 85 $res/003.png $res/003.jpegli.jpeg
+    time -p build/ect --as djpegli $res/002.jpegli.jpeg $res/002.jpegli.png
+    fi
+    # time -p build/ect -2 -zip $res/006.zip
     time -p build/ect -6 $res/001.png $res/003.png # high level recompress
     time -p build/ect -7 $res/005.tgz # gzip decompress + compress
     # time -p build/ect -2 -zip $res/006.zip
