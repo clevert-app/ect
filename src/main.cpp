@@ -61,7 +61,7 @@ static void show_usage() {
     "  --gzip             Compress stdin with GZIP, write to --output or stdout\n"
     "  --quiet            Do not print size info\n"
     "  --help, -h         Print this help document\n"
-    "  --strict           Enable strict losslessness\n"
+    "  --strict           Enable strict lossless PNG\n"
     "  --compress-stored  Deflate stored ZIP entries (may break some formats like APK)\n"
     "  --optimize-inside  Optimize supported entries inside ZIP\n"
     "  --png-filter N     PNG filter strategy, (0-4, 6, 12, 77, 79)\n"
