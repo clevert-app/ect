@@ -6,6 +6,7 @@ add_library(zopfli
 	deflate.cpp
 	katajainen.cpp
 	lz77.c
+	LzFind.c
 	squeeze.c
 	util.c
 	zlib_container.c
@@ -15,9 +16,11 @@ add_library(zopfli
 	deflate.h
 	katajainen.h
 	lz77.h
+	LzFind.h
 	match.h
 	squeeze.h
 	util.h
+	threadLocal.h
 	zlib_container.h
 	zopfli.h)
 

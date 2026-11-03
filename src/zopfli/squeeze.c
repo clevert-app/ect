@@ -35,8 +35,8 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include "util.h"
 #include "squeeze.h"
 #include "match.h"
-#include "../LzFind.h"
-#include "../threadLocal.h"
+#include "LzFind.h"
+#include "threadLocal.h"
 
 #ifdef __SSE4_2__
 #include <emmintrin.h>

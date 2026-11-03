@@ -22,12 +22,10 @@ option(ECT_LIBJXL_SUPPORT "The libjxl (and jpegli) support" OFF)
 add_executable(ect
   main.cpp
   gztools.cpp
-  LzFind.c
   support.cpp
   ectpng.cpp
   # add headers so they get added to things like xcode projects
   gztools.h
-  LzFind.h
   support.h
   ectpng.h
 )
