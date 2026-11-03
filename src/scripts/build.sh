@@ -86,8 +86,8 @@ if [ "$1" = build ]; then
     exit 1
   fi
   if [ "$2" = asan ]; then
-    export CFLAGS="$CFLAGS -g -fsanitize=address -fno-omit-frame-pointer"
-    export LDFLAGS="$LDFLAGS -fsanitize=address"
+    export CFLAGS="$CFLAGS -g -fsanitize=address,undefined -Wcast-align -fno-omit-frame-pointer"
+    export LDFLAGS="$LDFLAGS -fsanitize=address,undefined"
   elif [ "$2" = profile-generate ]; then
     # export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-dir=$(pwd)/build/pgo -fprofile-generate" # gcc
     export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-generate"
