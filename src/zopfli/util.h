@@ -31,6 +31,8 @@ basic deflate specification values and generic program options.
 extern "C" {
 #endif
 
+#include <memory.h>
+#include <stdint.h>
 #include <stdlib.h>
 
 /* Minimum and maximum length that can be encoded in deflate. */
@@ -128,6 +130,28 @@ equal than *size.
   (*size)++;\
 }
 #endif
+
+#ifdef __GNUC__
+#define ZOPFLI_FORCE_INLINE __attribute__((always_inline, hot))
+#elif defined(_MSC_VER)
+#define ZOPFLI_FORCE_INLINE __forceinline
+#endif
+
+ZOPFLI_FORCE_INLINE
+static inline uint64_t u64read(const unsigned char *p) {
+  uint64_t v;
+  memcpy(&v, p, sizeof(v));
+  return v;
+}
+
+ZOPFLI_FORCE_INLINE
+static inline uint32_t u32read(const unsigned char *p) {
+  uint32_t v;
+  memcpy(&v, p, sizeof(v));
+  return v;
+}
+
+// TODO: u64write and u32write
 
 #ifdef __cplusplus
 }

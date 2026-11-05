@@ -336,8 +336,8 @@ static void fail(const char *message) {
 static uint8_t *alloc_filtered(size_t size) {
   // Zopfli's GetMatch reads up to 15 bytes past the logical input end.
   // LodePNG supplies the same 16-byte tail before calling its compressor.
-  uint8_t *data = (uint8_t *)malloc(size + 16);
-  memset(data + size, 0, 16);
+  uint8_t *data = (uint8_t *)malloc(size + 32);
+  memset(data + size, 0, 32);
   return data;
 }
 

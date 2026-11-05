@@ -38,7 +38,7 @@ if [ "$1" = fetch ]; then
   [ -e $t ] || curl -o $t -L https://github.com/libjxl/libjxl/archive/e2948747fee8e99a614066eb058e67a0b8de995f.tar.gz
   tar -xf $t --strip-components 1 -C third_party/libjxl --exclude "*/tools/benchmark/metrics/*.sh"
   sed -i.bak -E \
-    -e "s|local down_dir=|local down_dir=$(pwd)/third_party #|g" \
+    -e "s|local down_dir=|local down_dir=$PWD/third_party #|g" \
     -e 's|local local_fn=|local local_fn=$down_dir/fetch.$(basename $path)_commit_$sha.tar.gz ; if [ -e $local_fn ]; then t=$MYDIR/$path ; mkdir -p $t ; tar -zxf $local_fn -C $t --strip-components 1 ; return 0 ; fi #|g' \
     -e 's|if is_git_repository |if false |g' \
     -e '/download_github +(testdata|third_party\/(googletest|zlib|libpng|libjpeg-turbo)) /d' \
@@ -79,29 +79,29 @@ if [ "$1" = build ]; then
     export PATH="$(brew --prefix llvm@23)/bin:$(brew --prefix lld@23)/bin:$PATH"
     export CFLAGS="$CFLAGS -mcpu=apple-m1 -mmacosx-version-min=14.0" MACOSX_DEPLOYMENT_TARGET=14.0
     export LDFLAGS="$LDFLAGS -Wl,-dead_strip"
-    export CMAKE_TOOLCHAIN_FILE="$(pwd)/toolchain.cmake.tmp"
+    export CMAKE_TOOLCHAIN_FILE="$PWD/toolchain.tmp.cmake"
     printf "set(CMAKE_AR $(command -v llvm-ar))\nset(CMAKE_RANLIB $(command -v llvm-ranlib))\n" > "$CMAKE_TOOLCHAIN_FILE"
   else
     uname -a
     exit 1
   fi
   if [ "$2" = asan ]; then
-    export CFLAGS="$CFLAGS -g -fsanitize=address,undefined -Wcast-align -fno-omit-frame-pointer"
+    export CFLAGS="$CFLAGS -g -fsanitize=address,undefined -fno-omit-frame-pointer" # -Wcast-align
     export LDFLAGS="$LDFLAGS -fsanitize=address,undefined"
   elif [ "$2" = profile-generate ]; then
-    # export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-dir=$(pwd)/build/pgo -fprofile-generate" # gcc
+    # export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-dir=$PWD/misc/pgo -fprofile-generate" # gcc
     export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-generate"
   elif [ "$2" = profile-use ]; then
-    # export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-dir=$(pwd)/pgo -fprofile-use" # gcc
-    export CFLAGS="$CFLAGS -fprofile-use=$(cygpath -m "$PWD" 2> /dev/null || pwd)/build/pgo"
-    llvm-profdata merge -output=build/pgo/default.profdata build/pgo/*.profraw
+    # export CFLAGS="$CFLAGS -fprofile-update=atomic -fprofile-dir=$PWD/misc/pgo -fprofile-use" # gcc
+    export CFLAGS="$CFLAGS -fprofile-use=$(cygpath -m "$PWD" 2> /dev/null || pwd)/build/misc/pgo"
+    llvm-profdata merge -output=build/misc/pgo/default.profdata build/misc/pgo/*.profraw
   else
     echo "pgo not enabled"
   fi
   export CXXFLAGS="$CFLAGS"
   [ "$(command -v ccache)" != "" ] && export CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache # ln -sf /media/kkocdko/KK_TMP_1/home/.cache/ccache ~/.cache/ccache
   # > ect
-  find build/ -mindepth 1 ! -path 'build/pgo' ! -path 'build/pgo/*' -delete || true # like rm -rf build/*
+  find build/ -mindepth 1 -maxdepth 1 ! -name misc -exec rm -rf {} + || true
   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
   cmake --build build
   # llvm-objcopy --strip-all build/ect$([ -e build/ect.exe ] && echo ".exe")
@@ -110,8 +110,7 @@ fi
 
 if [ "$1" = profile ]; then
   # === run and collect performance profile
-  res_bak=build/pgo/res_bak res=build/pgo/res
-  mkdir -p $res_bak
+  res=build/misc/res ; res_bak=build/misc/res_bak ; mkdir -p $res_bak
   add_res() { t=$res_bak/$1 ; [ "$(sha1sum $t | cut -d " " -f 1)" = $2 ] && return ; rm -rf $t ; curl -o $t -L "$3" ; [ "$(sha1sum $t | cut -d " " -f 1)" = $2 ] ; } # download if not match, then check again
   add_res 001.png c3ed16adab182be08d9482d884f9cf6019aaf9d1 https://user-images.githubusercontent.com/634063/202742985-bb3b3b94-8aca-404a-8d8a-fd6a6f030672.png # github desktop screenshot with alpha
   add_res 002.png c918ba3014052accbe558613c20b15ee6cd201d0 https://github.com/libjxl/testdata/raw/73695d303670c90e4d506ea89d9901b081385089/jxl/flower/flower.png # jxl flower big size test file
@@ -127,11 +126,11 @@ if [ "$1" = profile ]; then
   add_res 012.png 4fb9a56efbff6a82c43b51e10148b480bf3fc5b5 https://github.com/FreeCAD/FreeCAD/raw/refs/tags/1.1.4/.github/images/fem.png # freecad fem screenshot
   add_res 013.png ec7f334ad37ab5f4a318626d3b66aa4098e46047 https://github.com/FreeCAD/FreeCAD/raw/refs/tags/1.1.4/.github/images/partdesign.png # freecad partdesign screenshot
   # cp giflib/pic/fire.gif $res_bak/006.gif
-  rm -rf build/pgo/default.profdata build/pgo/*.profraw
+  rm -rf build/misc/pgo/default.profdata build/misc/pgo/*.profraw
   for i in 1 2; do # small files twice is enough
     rm -rf $res
     cp -a $res_bak $res
-    export LLVM_PROFILE_FILE=build/pgo/$i.%m.profraw
+    export LLVM_PROFILE_FILE=build/misc/pgo/$i.%m.profraw
     if false; then
     time -p build/ect --as cwebp -lossless $res/003.png -o $res/003.webp # to webp lossless
     time -p build/ect --as cwebp -lossless -sharp_yuv -m 6 $res/001.png -o $res/001.webp
@@ -154,7 +153,6 @@ if [ "$1" = profile ]; then
     # time -p build/ect -2 -zip $res/006.zip
     time -p build/ect -6 $res/001.png $res/003.png # high level recompress
     time -p build/ect -7 $res/005.tgz # gzip decompress + compress
-    # time -p build/ect -2 -zip $res/006.zip
     ZIPALIGN_THREADS_COUNT=3 ZIPALIGN_ZOPFLI_LEVEL=6 time -p build/ect --as zipalign -z -f -P 4 4 $res/004.apk $res/004.zipalign.apk
   done
   rm -rf $res
@@ -163,39 +161,36 @@ fi
 
 if [ "$1" = measure ]; then
   # === to measure the result
-  build_dir="$(pwd)/build"
+  res=build/misc/res ; res_bak=build/misc/res_bak ; mkdir -p $res_bak
   if [ "$2" = png ]; then
-    for name in $build_dir/pgo/ect_*; do
-      echo ==========
-      echo [ $name ]
-      rm -rf $build_dir/pgo/res
-      cp -a $build_dir/pgo/res_bak $build_dir/pgo/res
-      time -p $name -6 $build_dir/pgo/res/001.png # taskset -c 2,4,6,8
-      # sha1sum $build_dir/pgo/res/001.png
-      # time -p $name -4 $build_dir/pgo/res/005.tgz
-      # sha1sum $build_dir/pgo/res/005.tgz
-      time -p $name -6 $build_dir/pgo/res/012.png # taskset -c 2,4,6,8
-      # sha1sum $build_dir/pgo/res/012.png
-time -p $name -6 $build_dir/pgo/res/099.png
-time -p $name -6 $build_dir/pgo/res/007.png
-time -p $name -6 $build_dir/pgo/res/013.png
-ls -lh  $build_dir/pgo/res/001.png
-ls -lh $build_dir/pgo/res/012.png
-ls -lh $build_dir/pgo/res/099.png
-ls -lh $build_dir/pgo/res/007.png
-ls -lh $build_dir/pgo/res/013.png
+    for name in build/misc/ect_pgo; do
+      printf "==========\n[ $name ]\n"
+      rm -rf $res
+      cp -a $res_bak $res
+      launch() { time -p $name "$@" ; }
+      if command -v taskset >/dev/null 2>&1; then
+        launch() { time -p taskset -c 2 $name "$@" ; }
+      fi
+      launch() { hyperfine --shell /bin/bash --style basic --metrics time_wall_clock:s -w 1 -r 5 "$name $*" ; }
+      launch -6 $res/007.png
+      # launch -6 $res/001.png
+      # launch -3 $res/001.png
+      # launch -6 $res/005.tgz
+      # launch -8 $res/013.png
+      # launch -2 $res/012.png
+      # cp ~/Screenshots/ect_extra_test/* $res/
+      # launch -6 $res/s*.png
     done
     exit
   fi
   if [ "$2" = apk ]; then
+    exit 1
     rm -rf /tmp/ect_apk_test
     mkdir -p /tmp/ect_apk_test
     cd /tmp/ect_apk_test
-    i_apk=/media/kkocdko/KK_TMP_1/zcodecs/temp/build.bak/pgo/res_bak/004.apk
-    i_apk=~/misc/res/pkgs/android/tasker/tasker.6.2.22.forever.v6.apk
     i_apk=~/misc/res/pkgs/android/tasker/tasker.6.2.22.apk
     i_apk=~/misc/res/pkgs/android/wps/wps.16.8.6.v2.apk
-    i_apk=$build_dir/pgo/res_bak/004.apk
+    i_apk=$res_bak/004.apk
     check_y() {
       du -s y.apk
       rm -rf y
@@ -212,10 +207,6 @@ ls -lh $build_dir/pgo/res/013.png
       check_y
     done
     rm -rf /tmp/ect_apk_test
-    exit
-  fi
-  if [ "$2" = full ]; then
-    # what
     exit
   fi
 fi

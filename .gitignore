@@ -3,8 +3,9 @@
 *.a
 *.tmp
 *.bak
+*.tmp.cmake
 temp
-temp.md
+temp.prompts.*.md
 **/build
 **/third_party
 src/.cache/clangd
