@@ -7,7 +7,7 @@ add_library(zopfli
 	katajainen.cpp
 	lz77.c
 	LzFind.c
-	squeeze.c
+	squeeze.cpp
 	util.c
 	zlib_container.c
 	zopfli_gzip.cpp

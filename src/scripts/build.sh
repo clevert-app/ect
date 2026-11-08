@@ -159,11 +159,11 @@ if [ "$1" = profile ]; then
   exit
 fi
 
-if [ "$1" = measure ]; then
-  # === to measure the result
+if [ "$1" = bench ]; then
+  # === to run benchmark
   res=build/misc/res ; res_bak=build/misc/res_bak ; mkdir -p $res_bak
   if [ "$2" = png ]; then
-    for name in build/misc/ect_pgo; do
+    for name in build/misc/ect_*; do
       printf "==========\n[ $name ]\n"
       rm -rf $res
       cp -a $res_bak $res
@@ -171,7 +171,7 @@ if [ "$1" = measure ]; then
       if command -v taskset >/dev/null 2>&1; then
         launch() { time -p taskset -c 2 $name "$@" ; }
       fi
-      launch() { hyperfine --shell /bin/bash --style basic --metrics time_wall_clock:s -w 1 -r 5 "$name $*" ; }
+      launch() { hyperfine --shell /bin/bash --style basic --metrics time_wall_clock:s -w 1 -r 3 "$name $*" ; }
       launch -6 $res/007.png
       # launch -6 $res/001.png
       # launch -3 $res/001.png
@@ -184,31 +184,28 @@ if [ "$1" = measure ]; then
     exit
   fi
   if [ "$2" = apk ]; then
-    exit 1
-    rm -rf /tmp/ect_apk_test
-    mkdir -p /tmp/ect_apk_test
-    cd /tmp/ect_apk_test
     i_apk=~/misc/res/pkgs/android/tasker/tasker.6.2.22.apk
     i_apk=~/misc/res/pkgs/android/wps/wps.16.8.6.v2.apk
     i_apk=$res_bak/004.apk
     check_y() {
-      du -s y.apk
-      rm -rf y
-      unzip -q -o -d y y.apk
-      find y -type f -exec sha1sum {} + | sort -k 2 | sha1sum
+      du -s $res/y.apk
+      rm -rf $res/y
+      unzip -q -o -d $res/y $res/y.apk
+      find $res/y -type f -exec sha1sum {} + | sort -k 2 | sha1sum
     }
-    cp $i_apk y.apk
+    cp $i_apk $res/y.apk
     check_y
-    export ZIPALIGN_THREADS_COUNT=4 ZIPALIGN_ZOPFLI_LEVEL=6
-    for name in $build_dir/pgo/ect_*; do
-      echo ==========
-      echo [ $name ]
-      time -p $name --as zipalign -z -f -P 4 4 $i_apk y.apk
+    export ZIPALIGN_THREADS_COUNT=3 ZIPALIGN_ZOPFLI_LEVEL=6
+    for name in build/misc/ect_*; do
+      printf "==========\n[ $name ]\n"
+      mkdir -p $res
+      time -p $name --as zipalign -z -f -P 4 4 $i_apk $res/y.apk
       check_y
     done
-    rm -rf /tmp/ect_apk_test
+    rm -rf $res/y
     exit
   fi
+  exit 1
 fi
 
 exit 1
