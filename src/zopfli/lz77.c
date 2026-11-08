@@ -255,8 +255,8 @@ static int LZ4HC_InsertAndFindBestMatch(LZ4HC_Data_Structure* hc4,   /* Index ta
       size_t mlt = GetMatch(ip + 2, base + matchIndex + 2, iLimit, iLimit - 8) - ip;
 
       if (mlt > ml) { ml = mlt; *matchpos = match;
-        if (ml == ZOPFLI_MAX_MATCH){
-          return ZOPFLI_MAX_MATCH;
+        if (ml == (size_t)(iLimit - ip)){
+          return (int)ml;
         }
         end = u32read(ip + ml - 3);
         base2 = base + ml - 3;

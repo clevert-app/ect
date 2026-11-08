@@ -134,11 +134,9 @@ static void PatchDistanceCodesForBuggyDecoders(unsigned* d_lengths) {
  */
 static void ZopfliLengthsToSymbols(const unsigned* lengths, size_t n, unsigned maxbits,
                             unsigned* symbols) {
-  unsigned* bl_count = (unsigned*)calloc(maxbits + 1, sizeof(unsigned));
-  unsigned* next_code = (unsigned*)malloc(sizeof(unsigned) * (maxbits + 1));
-  if (!bl_count || !next_code){
-    exit(1);
-  }
+  assert(maxbits <= 15);
+  unsigned bl_count[16] = {0};
+  unsigned next_code[16];
   unsigned i;
 
   /* 1) Count the number of codes for each code length. Let bl_count[N] be the
@@ -164,8 +162,6 @@ static void ZopfliLengthsToSymbols(const unsigned* lengths, size_t n, unsigned m
     }
   }
 
-  free(bl_count);
-  free(next_code);
 }
 
 /*
@@ -498,7 +494,8 @@ static void OptimizeHuffmanCountsForRlezop(int length, size_t* counts) {
 
   /* 2) Let's mark all population counts that already can be encoded
    with an rle code.*/
-  unsigned char* good_for_rle = (unsigned char*)calloc(length, 1);
+  assert(length <= 288);
+  unsigned char good_for_rle[288] = {0};
 
   /* Let's not spoil any of the existing good rle codes.
    Mark any seq of 0's that is longer than 5 as a good_for_rle.
@@ -558,7 +555,6 @@ static void OptimizeHuffmanCountsForRlezop(int length, size_t* counts) {
     }
   }
 
-  free(good_for_rle);
 }
 
 //From brotli.
@@ -577,10 +573,8 @@ void OptimizeHuffmanCountsForRle(int length, size_t* counts) {
 
   // 2) Let's mark all population counts that already can be encoded
   // with an rle code.
-  unsigned char* good_for_rle = (unsigned char*)calloc(length, 1);
-  if (!good_for_rle) {
-    exit(1);
-  }
+  assert(length <= 288);
+  unsigned char good_for_rle[288] = {0};
 
   // Let's not spoil any of the existing good rle codes.
   // Mark any seq of 0's that is longer as 5 as a good_for_rle.
@@ -595,7 +589,9 @@ void OptimizeHuffmanCountsForRle(int length, size_t* counts) {
         }
       }
       stride = 1;
-      symbol = counts[i];
+      if (i != length) {
+        symbol = counts[i];
+      }
     } else {
       ++stride;
     }
@@ -629,8 +625,10 @@ void OptimizeHuffmanCountsForRle(int length, size_t* counts) {
         // All interesting strides have a count of at least 4,
         // at least when non-zeros.
         limit = 256 * (counts[i] + counts[i + 1] + counts[i + 2]) / 3 + 420;
-      } else {
+      } else if (i < length) {
         limit = 256 * counts[i];
+      } else {
+        limit = 0;
       }
     }
     ++stride;
@@ -644,7 +642,6 @@ void OptimizeHuffmanCountsForRle(int length, size_t* counts) {
       }
     }
   }
-  free(good_for_rle);
 }
 
 static size_t CalculateBlockSymbolSize(const size_t* ll_counts, const size_t* d_counts, const unsigned* ll_lengths, const unsigned* d_lengths){
