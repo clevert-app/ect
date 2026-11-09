@@ -249,60 +249,53 @@ static int LZ4HC_InsertAndFindBestMatch3 (LZ3HC_Data_Structure* hc4,   /* Index 
   return num;
 }
 
-// Precompute distance costs for fast lookup in disttable.
-// The deflate uses a distance symbol and extra bits:
-// | Distance | Symbol | Extra bits |
-// | -------- | ------ | ---------- |
-// | 1        | 0      | 0          |
-// | 2        | 1      | 0          |
-// | 5-6      | 4      | 1          |
-// | 7-8      | 5      | 1          |
-// | 9-12     | 6      | 2          |
-static inline void InitDistanceCosts(float *disttable, const float *symbols, size_t distcount) {
-  size_t first = 1;
-  // unroll?
-  for (unsigned symbol = 0; symbol < 30 && first < distcount; symbol++) {
-    const unsigned extra = symbol < 4 ? 0 : symbol / 2 - 1;
-    const float price = (symbols ? symbols[symbol] : 0) + extra;
-    size_t end = first + (1U << extra);
-    if (end > distcount)
-      end = distcount;
-    for (size_t distance = first; distance < end; distance++)
-      disttable[distance] = price;
-    first = end;
+// based on zlib-ng deflate.h d_code mapping
+template <typename Cost>
+class DistanceCostModel {
+  Cost prices[512];
+public:
+  DistanceCostModel(const Cost *symbols) {
+    unsigned first = 0;
+    for (unsigned symbol = 0; symbol < 30; symbol++) {
+      unsigned extra = symbol < 4 ? 0 : symbol / 2 - 1;
+      Cost price = (symbols ? symbols[symbol] : Cost{}) + extra;
+      unsigned end = first + (1U << extra);
+      unsigned start_index = first < 256 ? first : 256 + (first >> 7);
+      unsigned end_index = first < 256 ? end : 256 + (end >> 7);
+      for (unsigned index = start_index; index < end_index; ++index)
+        prices[index] = price;
+      first = end;
+    }
   }
-}
+  inline Cost get_cost(unsigned distance) {
+    unsigned v = distance - 1;
+    unsigned index = distance < 257 ? v : 256 + (v >> 7);
+    return prices[index]; // index 256 and 257 are unused
+  }
+};
 
 template<bool use_cached_matches>
 static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in, size_t instart, size_t inend,
                            SymbolStats* costcontext, unsigned* length_array, unsigned char storeincache, LZCache* c, unsigned mfinexport) {
   size_t i;
-  /*TODO: Put this in separate function*/
+  if (use_cached_matches && costcontext == nullptr)
+    exit(1);
+  DistanceCostModel<float> d_model(costcontext ? costcontext->d_symbols : nullptr);
   float litlentable [259];
-  const size_t distcount = inend < ZOPFLI_WINDOW_SIZE ? inend + 1 : ZOPFLI_WINDOW_SIZE;
-  float* disttable = (float*)malloc(distcount * sizeof(float));
   float* literals;
-  if constexpr (use_cached_matches) {
+  float literals_local[256];
+  if (costcontext){  /* Dynamic Block */
     literals = costcontext->ll_symbols;
-    for (i = 3; i < 259; i++){
+    for (i = 3; i < 259; i++)
       litlentable[i] = costcontext->ll_symbols[ZopfliGetLengthSymbol(i)] + ZopfliGetLengthExtraBits(i);
-    }
-    InitDistanceCosts(disttable, costcontext->d_symbols, distcount);
   } else {
-    if (costcontext){  /* Dynamic Block */
-      literals = costcontext->ll_symbols;
-      for (i = 3; i < 259; i++)
-        litlentable[i] = costcontext->ll_symbols[ZopfliGetLengthSymbol(i)] + ZopfliGetLengthExtraBits(i);
-    } else {
-      literals = (float*)malloc(256 * sizeof(float));
-      for (i = 0; i < 144; i++)
-        literals[i] = 8;
-      for (; i < 256; i++)
-        literals[i] = 9;
-      for (i = 3; i < 259; i++)
-        litlentable[i] = 12 + (i > 114) + ZopfliGetLengthExtraBits(i);
-    }
-    InitDistanceCosts(disttable, costcontext ? costcontext->d_symbols : NULL, distcount);
+    literals = literals_local;
+    for (i = 0; i < 144; i++)
+      literals[i] = 8;
+    for (; i < 256; i++)
+      literals[i] = 9;
+    for (i = 3; i < 259; i++)
+      litlentable[i] = 12 + (i > 114) + ZopfliGetLengthExtraBits(i);
   }
 
   size_t blocksize = inend - instart;
@@ -444,11 +437,11 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
           else if (i + ZOPFLI_MAX_MATCH < inend && in[i + ZOPFLI_MAX_MATCH] == in[i + ZOPFLI_MAX_MATCH - dist_258]) {match_type = ML_MATCH;}
         }
         unsigned dist = matches[1];
-        costs[j + ZOPFLI_MAX_MATCH] = costs[j] + disttable[dist] + litlentable[ZOPFLI_MAX_MATCH];
+        costs[j + ZOPFLI_MAX_MATCH] = costs[j] + d_model.get_cost(dist) + litlentable[ZOPFLI_MAX_MATCH];
         length_array[j + ZOPFLI_MAX_MATCH] = ZOPFLI_MAX_MATCH + (dist << 9);
       // } else if (*(mend - 2) == ZOPFLI_MAX_MATCH) { // More speed, less compression.
       //   unsigned dist = matches[numPairs - 1];
-      //   costs[j + ZOPFLI_MAX_MATCH] = costs[j] + disttable[dist] + litlentable[ZOPFLI_MAX_MATCH];
+      //   costs[j + ZOPFLI_MAX_MATCH] = costs[j] + d_model.get_cost(dist) + litlentable[ZOPFLI_MAX_MATCH];
       //   length_array[j + ZOPFLI_MAX_MATCH] = ZOPFLI_MAX_MATCH + (dist << 9);
       } else {
         if constexpr (!use_cached_matches) {
@@ -462,7 +455,7 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
         while (mp < mend) {
           unsigned len = *mp++;
           unsigned dist = *mp++;
-          float price2 = price + disttable[dist];
+          float price2 = price + d_model.get_cost(dist);
           dist <<=9;
           if constexpr (!use_cached_matches) {
             // Speed hack to not consider matches that do not seem promising. While
@@ -585,10 +578,7 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
     MatchFinder_Free(&p);
     if (storeincache)
       c->pointer = 0;
-    if (!costcontext)
-      free(literals);
   }
-  free(disttable);
   free(costs);
 }
 
@@ -596,22 +586,14 @@ static void GetBestLengthsultra2(const unsigned char* in, size_t instart, size_t
   size_t i;
 
   unsigned char litlentable [259];
-  unsigned char* disttable = (unsigned char*)malloc(ZOPFLI_WINDOW_SIZE);
-  if (!disttable){
-    exit(1);
-  }
+  DistanceCostModel<unsigned char> d_model(costcontext->d_symbols);
   unsigned char* literals = costcontext->ll_symbols;
   for (i = 3; i < 259; i++){
     litlentable[i] = costcontext->ll_symbols[ZopfliGetLengthSymbol(i)] + ZopfliGetLengthExtraBits(i);
   }
-  for (i = 1; i < 32768; i++){
-    disttable[i] = costcontext->d_symbols[ZopfliGetDistSymbol(i)] + ZopfliGetDistExtraBits(i);
-  }
-
   size_t blocksize = inend - instart;
 
   unsigned* costs = (unsigned*)malloc(sizeof(unsigned) * (blocksize + 1));
-  if (!costs) exit(1); /* Allocation failed. */
   costs[0] = 0;  /* Because it's the start. */
   memset(costs + 1, 127, sizeof(float) * blocksize);
 
@@ -635,7 +617,7 @@ static void GetBestLengthsultra2(const unsigned char* in, size_t instart, size_t
       while (mp < mend){
         unsigned len = *mp++;
         unsigned dist = *mp++;
-        unsigned price2 = price + disttable[dist];
+        unsigned price2 = price + d_model.get_cost(dist);
         for (unsigned curr = ZOPFLI_MIN_MATCH; curr <= len; curr++) {
           unsigned x = price2 + litlentable[curr];
           if (x < costs[j + curr]){
@@ -654,7 +636,6 @@ static void GetBestLengthsultra2(const unsigned char* in, size_t instart, size_t
     }
   }
 
-  free(disttable);
   free(costs);
 }
 
@@ -835,8 +816,6 @@ static void ZopfliLZ77Optimal(const ZopfliOptions* options,
   /* Try randomizing the costs a bit once the size stabilizes. */
   RanState ran_state;
   int lastrandomstep = -1;
-
-  if (!length_array) exit(1); /* Allocation failed. */
 
   InitRanState(&ran_state);
   ZopfliInitLZ77Store(&currentstore);
@@ -1134,7 +1113,6 @@ void ZopfliLZ77Optimal2(const ZopfliOptions* options,
   ZopfliInitLZ77Store(store);
   /* Dist to get to here with smallest cost. */
   unsigned* length_array = (unsigned*)malloc(sizeof(unsigned) * (inend - instart + 1));
-  if (!length_array) exit(1); /* Allocation failed. */
   LZ77OptimalRun(options, in, instart, inend, length_array, options->reuse_costmodel ? &st : &stats, store, 0, 0, mfinexport, 0);
   free(length_array);
 
@@ -1150,7 +1128,6 @@ void ZopfliLZ77OptimalFixed(const ZopfliOptions* options,
 {
   /* Dist to get to here with smallest cost. */
   unsigned* length_array = (unsigned*)malloc(sizeof(unsigned) * (inend - instart + 1));
-  if (!length_array) exit(1); /* Allocation failed. */
 
   /* Shortest path for fixed tree This one should give the shortest possible
   result for fixed tree, no repeated runs are needed since the tree is known. */
