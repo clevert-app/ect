@@ -267,9 +267,14 @@ public:
       first = end;
     }
   }
-  inline Cost get_cost(unsigned distance) {
+  inline Cost get_cost(unsigned distance) const noexcept {
+    // if (distance < 8192) {
+    //   // = 115842042 times
+    // } else {
+    //   // =   8695134 times
+    // }
     unsigned v = distance - 1;
-    unsigned index = distance < 257 ? v : 256 + (v >> 7);
+    unsigned index = distance < 257U ? v : (256U | (v >> 7));
     return prices[index]; // index 256 and 257 are unused
   }
 };
@@ -451,7 +456,8 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
             match_type = RLE;
         }
         unsigned short* mp = matches;
-        unsigned curr = ZOPFLI_MIN_MATCH;
+        size_t curr = ZOPFLI_MIN_MATCH;
+        static_assert(std::is_same_v<size_t, uintptr_t>);
         while (mp < mend) {
           unsigned len = *mp++;
           unsigned dist = *mp++;
@@ -470,6 +476,8 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
             }
           }
           // > simd impl
+          float * __restrict x_base = costs + j;
+          unsigned * __restrict y_base = length_array + j;
           #if defined(__AVX2__)
           if (curr + 7 <= len) {
             const __m256 prices = _mm256_set1_ps(price2);
@@ -501,10 +509,32 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
               curr = len + 1;
             }
           }
-          #endif
-          
-          // for x86_64-v3, both __AVX2__ and __SSE4_2__ will be enabled
-          #if defined(__SSE4_2__)
+          // if (curr + 7 <= len) {
+          //   const __m256 prices = _mm256_set1_ps(price2);
+          //   for (; curr + 15 <= len; curr += 16) {
+          //     const __m256 candidate0 = _mm256_add_ps(prices, _mm256_loadu_ps(&litlentable[curr]));
+          //     const __m256 candidate1 = _mm256_add_ps(prices, _mm256_loadu_ps(&litlentable[curr + 8]));
+          //     const __m256 previous0 = _mm256_loadu_ps(&costs[j + curr]);
+          //     const __m256 previous1 = _mm256_loadu_ps(&costs[j + curr + 8]);
+          //     const __m256 better0 = _mm256_cmp_ps(candidate0, previous0, _CMP_LT_OQ);
+          //     const __m256 better1 = _mm256_cmp_ps(candidate1, previous1, _CMP_LT_OQ);
+          //     if (_mm256_movemask_ps(_mm256_or_ps(better0, better1))) {
+          //       const __m256i lengths0 = _mm256_add_epi32(_mm256_set1_epi32(curr + dist),
+          //           _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7));
+          //       const __m256i lengths1 = _mm256_add_epi32(lengths0, _mm256_set1_epi32(8));
+          //       const __m256i previous_lengths0 = _mm256_loadu_si256((const __m256i*)&length_array[j + curr]);
+          //       const __m256i previous_lengths1 = _mm256_loadu_si256((const __m256i*)&length_array[j + curr + 8]);
+          //       _mm256_storeu_ps(&costs[j + curr], _mm256_blendv_ps(previous0, candidate0, better0));
+          //       _mm256_storeu_ps(&costs[j + curr + 8], _mm256_blendv_ps(previous1, candidate1, better1));
+          //       _mm256_storeu_si256((__m256i*)&length_array[j + curr],
+          //           _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(previous_lengths0),
+          //               _mm256_castsi256_ps(lengths0), better0)));
+          //       _mm256_storeu_si256((__m256i*)&length_array[j + curr + 8],
+          //           _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(previous_lengths1),
+          //               _mm256_castsi256_ps(lengths1), better1)));
+          //     }
+          //   }
+          // }
           if (curr + 3 <= len) {
             const __m128 prices = _mm_set1_ps(price2);
             for (; curr + 3 <= len; curr += 4) {
@@ -521,46 +551,62 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
             }
           }
           #endif
-          
-          // use neon
-          #if defined(__aarch64__)
+          #if defined(__ARM_NEON)
           if (curr + 3 <= len) {
             const float32x4_t prices = vdupq_n_f32(price2);
-            for (; curr + 3 <= len; curr += 4) {
-              float32x4_t candidate = vaddq_f32(prices, vld1q_f32(&litlentable[curr]));
-              float32x4_t previous = vld1q_f32(&costs[j + curr]);
-              uint32x4_t better = vcltq_f32(candidate, previous);
+            for (; curr <= len - 3; curr += 4) {
+              float32x4_t x_prev = vld1q_f32(x_base + curr);
+              float32x4_t x = vaddq_f32(prices, vld1q_f32(litlentable + curr));
+              uint32x4_t better = vcltq_f32(x, x_prev);
               if (vmaxvq_u32(better)) {
-                uint32x4_t lengths = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
-                vst1q_f32(&costs[j + curr], vbslq_f32(better, candidate, previous));
-                vst1q_u32(&length_array[j + curr], vbslq_u32(better, lengths, vld1q_u32(&length_array[j + curr])));
+                uint32x4_t y_prev = vld1q_u32(y_base + curr);
+                uint32x4_t y = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
+                vst1q_f32(x_base + curr, vminq_f32(x, x_prev));
+                vst1q_u32(y_base + curr, vbslq_u32(better, y, y_prev));
               }
             }
             if (curr <= len) {
               curr = len - 3;
-              float32x4_t candidate = vaddq_f32(prices, vld1q_f32(&litlentable[curr]));
-              float32x4_t previous = vld1q_f32(&costs[j + curr]);
-              uint32x4_t better = vcltq_f32(candidate, previous);
+              float32x4_t x_prev = vld1q_f32(x_base + curr);
+              float32x4_t x = vaddq_f32(prices, vld1q_f32(litlentable + curr));
+              uint32x4_t better = vcltq_f32(x, x_prev);
               if (vmaxvq_u32(better)) {
-                uint32x4_t lengths = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
-                vst1q_f32(&costs[j + curr], vbslq_f32(better, candidate, previous));
-                vst1q_u32(&length_array[j + curr], vbslq_u32(better, lengths, vld1q_u32(&length_array[j + curr])));
+                uint32x4_t y_prev = vld1q_u32(y_base + curr);
+                uint32x4_t y = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
+                vst1q_f32(x_base + curr, vminq_f32(x, x_prev));
+                vst1q_u32(y_base + curr, vbslq_u32(better, y, y_prev));
               }
               curr = len + 1;
             }
           }
           #endif
-          // > origin scalar logic
+          // remaining_count
+          // > force cmov branchless
           #if defined(__clang__)
           #pragma clang loop vectorize(disable)
           #elif defined(__GNUC__) && (__GNUC__ >= 14)
           #pragma GCC novector
           #endif
           for (; curr <= len; curr++) {
+            // float x = price2 + litlentable[curr];
+            // float x_prev = x_base[curr];
+            // unsigned y_prev = y_base[curr];
+            // unsigned better = x < x_prev;
+            // x_base[curr] = better ? x : x_prev;
+            // y_base[curr] = __builtin_unpredictable(better) ? curr + dist : y_prev;
             float x = price2 + litlentable[curr];
-            if (x < costs[j+curr])
-              costs[j+curr]=x , length_array[j+curr]=curr+dist;
+            float x_prev = costs[j + curr];
+            unsigned y_prev = length_array[j + curr];
+            unsigned better = x < x_prev;
+            costs[j + curr] = better ? x : x_prev;
+            length_array[j + curr] = __builtin_unpredictable(better) ? curr + dist : y_prev;
           }
+          // > origin scalar logic
+          // for (; curr <= len; curr++) {
+          //   float x = price2 + litlentable[curr];
+          //   if (x < costs[j + curr])
+          //     costs[j + curr] = x, length_array[j + curr] = curr + dist;
+          // }
         }
       }
     }
