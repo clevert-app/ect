@@ -9,14 +9,26 @@ This is _ect_ project, contains:
 - The zipalign util in `zipalign` dir, to recompress Android APK.
 - And more.
 
-## Reference
+## Reference projects
+
+Below are project name, dir path, and the project homepage. If dir not exist, ask user to fetch them. Otherwize do not visit these homepages.
 
 - google zopfli - `third_party/ref/zopfli` - https://github.com/google/zopfli
 - krzy zopfli - `third_party/ref/kzry_zopfli` - https://github.com/MrKrzYch00/zopfli
 - 7zip - `third_party/ref/7zip` - https://github.com/ip7z/7zip
 - fast-lzma2 - `third_party/ref/fast-lzma2` - https://github.com/conor42/fast-lzma2
 - lz4 - `third_party/ref/lz4` - https://github.com/lz4/lz4
-- gzip - `third_party/ref/gzip` - https://deb.debian.org/debian/pool/main/g/gzip/gzip_1.13.orig.tar.xz
+- gnu gzip - `third_party/ref/gzip` - https://deb.debian.org/debian/pool/main/g/gzip/gzip_1.13.orig.tar.xz
+
+## Notes
+
+### Notes for zopfli
+
+Prioritize a global view over getting stuck in local optima.
+
+### Notes for png
+
+In `./ectpng.cpp`. It use `FilterEstimator` and more to optimize PNG filter strategy. Already done.
 
 ## Build and Bench
 
