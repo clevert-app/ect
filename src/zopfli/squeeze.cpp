@@ -24,10 +24,7 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#if _MSC_VER
-#include <malloc.h>
-#define alloca _alloca
-#endif
+// #include <atomic>
 
 #include "blocksplitter.h"
 #include "deflate.h"
@@ -252,318 +249,116 @@ static int LZ4HC_InsertAndFindBestMatch3 (LZ3HC_Data_Structure* hc4,   /* Index 
   return num;
 }
 
-static void GetBestLengths2(const unsigned char* in, size_t instart, size_t inend,
-                           SymbolStats* costcontext, unsigned* length_array, LZCache* c) {
-  size_t i;
-
-  /*TODO: Put this in separate function*/
-  float litlentable [259];
-  float* disttable = (float*)malloc(ZOPFLI_WINDOW_SIZE * sizeof(float));
-  float* literals = costcontext->ll_symbols;
-  if (!disttable){
-    exit(1);
-  }
-    for (i = 3; i < 259; i++){
-      litlentable[i] = costcontext->ll_symbols[ZopfliGetLengthSymbol(i)] + ZopfliGetLengthExtraBits(i);
-    }
-    for (i = 1; i < 1025; i++){
-      disttable[i] = costcontext->d_symbols[ZopfliGetDistSymbol(i)] + ZopfliGetDistExtraBits(i);
-    }
-    float counter = costcontext->d_symbols[20] + 9;
-    for (; i < 1537; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[21] + 9;
-    for (; i < 2049; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[22] + 10;
-    for (; i < 3073; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[23] + 10;
-    for (; i < 4097; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[24] + 11;
-    for (; i < 6145; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[25] + 11;
-    for (; i < 8193; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[26] + 12;
-    for (; i < 12289; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[27] + 12;
-    for (; i < 16385; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[28] + 13;
-    for (; i < 24577; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[29] + 13;
-    for (; i < 32768; i++){
-      disttable[i] = counter;
-    }
-
-  size_t blocksize = inend - instart;
-
-  float* costs = (float*)malloc(sizeof(float) * (blocksize + 1));
-  if (!costs) exit(1); /* Allocation failed. */
-  costs[0] = 0;  /* Because it's the start. */
-  memset(costs + 1, 127, sizeof(float) * blocksize);
-  //Special handling for files with high redundancy
-#define RLE 1
-#define ML_MATCH 2
-#define ML_RLE 3
-  unsigned match_type = 0;
-
-  for (i = instart; i < inend; i++) {
-    size_t j = i - instart;  /* Index in the costs array and length_array. */
-
-    if (match_type == ML_RLE) {
-      /* If we're in a long repetition of the same character and have more than
-       ZOPFLI_MAX_MATCH characters after our position. */
-      const unsigned char* match_end = GetMatch(&in[i], &in[i - 1], &in[inend], &in[inend] - 8);
-      if (match_end >= &in[i] + ZOPFLI_MAX_MATCH) {
-        unsigned match = match_end - &in[i] - ZOPFLI_MAX_MATCH + 1;
-
-        float symbolcost = costcontext->ll_symbols[285] + costcontext->d_symbols[0];
-        /* Set the length to reach each one to ZOPFLI_MAX_MATCH, and the cost to
-         the cost corresponding to that length. Doing this, we skip
-         ZOPFLI_MAX_MATCH values to avoid calling ZopfliFindLongestMatch. */
-        for (unsigned k = 0; k < match; k++) {
-          costs[j + ZOPFLI_MAX_MATCH] = costs[j] + symbolcost;
-          length_array[j + ZOPFLI_MAX_MATCH] = ZOPFLI_MAX_MATCH + (1 << 9);
-          j++;
-        }
-
-        i += match;
-      }
-      match_type = 0;
-    }
-
-    unsigned short* matches = c->cache + c->pointer;
-    int numPairs = *matches;
-    matches++;
-    c->pointer += numPairs + 1;
-
-    if (numPairs){
-      const unsigned short * mend = matches + numPairs;
-
-      if (matches[0] == ZOPFLI_MAX_MATCH) {
-        unsigned dist = matches[1];
-        if (dist == 1) {match_type = ML_RLE;}
-
-        costs[j + ZOPFLI_MAX_MATCH] = costs[j] + disttable[dist] + litlentable[ZOPFLI_MAX_MATCH];
-        length_array[j + ZOPFLI_MAX_MATCH] = ZOPFLI_MAX_MATCH + (dist << 9);
-
-      }
-#if 0 //More speed, less compression.
-      else if (*(mend - 2) == ZOPFLI_MAX_MATCH){
-        unsigned dist = matches[numPairs - 1];
-        costs[j + ZOPFLI_MAX_MATCH] = costs[j] + disttable[dist] + litlentable[ZOPFLI_MAX_MATCH];
-        length_array[j + ZOPFLI_MAX_MATCH] = ZOPFLI_MAX_MATCH + (dist << 9);
-      }
-#endif
-      else{
-        float price = costs[j];
-        unsigned short* mp = matches;
-
-        unsigned curr = ZOPFLI_MIN_MATCH;
-        while (mp < mend){
-          unsigned len = *mp++;
-          unsigned dist = *mp++;
-          float price2 = price + disttable[dist];
-          dist <<=9;
-          // simd impl
-          #include "squeeze.simd.insert.c"
-          // disable auto vectorize here, it cause performance regression
-          #if defined(__clang__)
-          #pragma clang loop vectorize(disable)
-          #elif defined(__GNUC__) && (__GNUC__ >= 14)
-          #pragma GCC novector
-          #endif
-          for (; curr <= len; curr++) {
-            float x = price2 + litlentable[curr];
-            if (x < costs[j + curr]){
-              costs[j + curr] = x;
-              length_array[j + curr] = curr + dist;
-            }
-          }
-        }
-      }
-    }
-
-    /* Literal. */
-    float newCost = costs[j] + literals[in[i]];
-    if (newCost < costs[j + 1]) {
-      costs[j + 1] = newCost;
-      length_array[j + 1] = 1U + (in[i] << 24);
+// based on zlib-ng deflate.h d_code mapping
+template <typename Cost>
+class DistanceCostModel {
+  Cost prices[512];
+public:
+  DistanceCostModel(const Cost *symbols) {
+    unsigned first = 0;
+    for (unsigned symbol = 0; symbol < 30; symbol++) {
+      unsigned extra = symbol < 4 ? 0 : symbol / 2 - 1;
+      Cost price = (symbols ? symbols[symbol] : Cost{}) + extra;
+      unsigned end = first + (1U << extra);
+      unsigned start_index = first < 256 ? first : 256 + (first >> 7);
+      unsigned end_index = first < 256 ? end : 256 + (end >> 7);
+      for (unsigned index = start_index; index < end_index; ++index)
+        prices[index] = price;
+      first = end;
     }
   }
+  inline Cost get_cost(unsigned distance) const noexcept {
+    // if (distance < 8192) {
+    //   // = 115842042 times
+    // } else {
+    //   // =   8695134 times
+    // }
+    unsigned v = distance - 1;
+    unsigned index = distance < 257U ? v : (256U | (v >> 7));
+    return prices[index]; // index 256 and 257 are unused
+  }
+};
 
-  c->pointer = 0;
-
-  free(disttable);
-  free(costs);
-}
-
+template<bool use_cached_matches>
 static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in, size_t instart, size_t inend,
                            SymbolStats* costcontext, unsigned* length_array, unsigned char storeincache, LZCache* c, unsigned mfinexport) {
   size_t i;
-
-  /*TODO: Put this in separate function*/
-  float litlentable [259];
-  float* disttable = (float*)malloc(ZOPFLI_WINDOW_SIZE * sizeof(float));
-  float* literals;
-  if (!disttable){
+  if (use_cached_matches && costcontext == nullptr)
     exit(1);
-  }
+  DistanceCostModel<float> d_model(costcontext ? costcontext->d_symbols : nullptr);
+  float litlentable [259];
+  float* literals;
+  float literals_local[256];
   if (costcontext){  /* Dynamic Block */
-
     literals = costcontext->ll_symbols;
-    for (i = 3; i < 259; i++){
+    for (i = 3; i < 259; i++)
       litlentable[i] = costcontext->ll_symbols[ZopfliGetLengthSymbol(i)] + ZopfliGetLengthExtraBits(i);
-    }
-    for (i = 1; i < 513; i++){
-      disttable[i] = costcontext->d_symbols[ZopfliGetDistSymbol(i)] + ZopfliGetDistExtraBits(i);
-    }
-    float counter = costcontext->d_symbols[18] + 8;
-    for (; i < 769; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[19] + 8;
-    for (; i < 1025; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[20] + 9;
-    for (; i < 1537; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[21] + 9;
-    for (; i < 2049; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[22] + 10;
-    for (; i < 3073; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[23] + 10;
-    for (; i < 4097; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[24] + 11;
-    for (; i < 6145; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[25] + 11;
-    for (; i < 8193; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[26] + 12;
-    for (; i < 12289; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[27] + 12;
-    for (; i < 16385; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[28] + 13;
-    for (; i < 24577; i++){
-      disttable[i] = counter;
-    }
-    counter = costcontext->d_symbols[29] + 13;
-    for (; i < 32768; i++){
-      disttable[i] = counter;
-    }
-  }
-  else {
-    literals = (float*)malloc(256 * sizeof(float));
-    if (!literals){
-      exit(1);
-    }
-
-    for (i = 0; i < 144; i++){
+  } else {
+    literals = literals_local;
+    for (i = 0; i < 144; i++)
       literals[i] = 8;
-    }
-    for (; i < 256; i++){
+    for (; i < 256; i++)
       literals[i] = 9;
-    }
-    for (i = 3; i < 259; i++){
+    for (i = 3; i < 259; i++)
       litlentable[i] = 12 + (i > 114) + ZopfliGetLengthExtraBits(i);
-    }
-    for (i = 1; i < 1025; i++){
-      disttable[i] = ZopfliGetDistExtraBits(i);
-    }
-    for (; i < 2049; i++){
-      disttable[i] = 9;
-    }
-    for (; i < 4097; i++){
-      disttable[i] = 10;
-    }
-    for (; i < 8193; i++){
-      disttable[i] = 11;
-    }
-    for (; i < 16385; i++){
-      disttable[i] = 12;
-    }
-    for (; i < 32768; i++){
-      disttable[i] = 13;
-    }
   }
 
   size_t blocksize = inend - instart;
 
   float* costs = (float*)malloc(sizeof(float) * (blocksize + 1));
-  if (!costs) exit(1); /* Allocation failed. */
-  costs[0] = 0;  /* Because it's the start. */
+  costs[0] = 0; // Because it's the start
   memset(costs + 1, 127, sizeof(float) * blocksize);
 
   size_t windowstart = instart > ZOPFLI_WINDOW_SIZE ? instart - ZOPFLI_WINDOW_SIZE : 0;
 
   CMatchFinder p;
-  p.hash = 0;
+  if constexpr (!use_cached_matches) {
+    p.hash = 0;
     if (mfinexport & right){
       p = mf;
       p.bufend = &in[inend];
-
       Bt3Zip_MatchFinder_Skip(&p, ZOPFLI_MAX_MATCH);
-
       assert(p.buffer == &in[instart]);
       right = 0;
-    }
-    else{
+    } else {
       p.buffer = &in[windowstart];
       p.bufend = &in[inend];
-
       MatchFinder_Create(&p);
       Bt3Zip_MatchFinder_Skip(&p, instart - windowstart);
     }
-
-  unsigned short* matches;
-  if (!storeincache){
-    matches = alloca(513 * sizeof(unsigned short));
   }
 
+  unsigned short* matches;
+  unsigned short matches_local[513];
+  if constexpr (!use_cached_matches) {
+    if (!storeincache){
+      matches = matches_local;
+    }
+  }
+
+  // Special handling for files with high redundancy
+  const unsigned int RLE = 1;
+  const unsigned int ML_MATCH = 2;
+  const unsigned int ML_RLE = 3;
   unsigned match_type = 0;
   unsigned dist_258 = inend + 1;
   for (i = instart; i < inend; i++) {
-    size_t j = i - instart;  /* Index in the costs array and length_array. */
+    size_t j = i - instart; // Index in the costs array and length_array
 
-    //Faster pathway for files with minimum entropy
+    // Faster pathway for files with minimum entropy
     if (match_type == ML_RLE) {
-      /* If we're in a long repetition of the same character and have more than
-       ZOPFLI_MAX_MATCH characters after our position. */
+      // If we're in a long repetition of the same character and have more than
+      // ZOPFLI_MAX_MATCH characters after our position.
       const unsigned char* match_end = GetMatch(&in[i], &in[i - 1], &in[inend], &in[inend] - 8);
       if (match_end >= &in[i] + ZOPFLI_MAX_MATCH) {
         unsigned match = match_end - &in[i] - ZOPFLI_MAX_MATCH + 1;
 
-        float symbolcost = costcontext ? costcontext->ll_symbols[285] + costcontext->d_symbols[0] : 13;
+        float symbolcost;
+        if constexpr (use_cached_matches) {
+          symbolcost = costcontext->ll_symbols[285] + costcontext->d_symbols[0];
+        } else {
+          symbolcost = costcontext ? costcontext->ll_symbols[285] + costcontext->d_symbols[0] : 13;
+        }
         /* Set the length to reach each one to ZOPFLI_MAX_MATCH, and the cost to
          the cost corresponding to that length. Doing this, we skip
          ZOPFLI_MAX_MATCH values to avoid calling ZopfliFindLongestMatch. */
@@ -573,6 +368,7 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
           j++;
         }
 
+        if constexpr (!use_cached_matches) {
           if (mfinexport & 2 && i + match > inend - ZOPFLI_MAX_MATCH - 1 && i <= inend - ZOPFLI_MAX_MATCH - 1) {
             unsigned now = inend - ZOPFLI_MAX_MATCH - i;
             Bt3Zip_MatchFinder_Skip2(&p, now);
@@ -592,114 +388,243 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
               Bt3Zip_MatchFinder_Skip2(&p, match);
             }
           }
+        }
         i += match;
       }
-      match_type = i + ZOPFLI_MAX_MATCH < inend;
+      if constexpr (use_cached_matches) {
+        match_type = 0;
+      } else {
+        match_type = unsigned(i + ZOPFLI_MAX_MATCH < inend);
+      }
     }
 
     int numPairs;
-    if (!storeincache){
-      if (!match_type) {
-        numPairs = Bt3Zip_MatchFinder_GetMatches(&p, matches);
-      } else if (match_type == RLE) {
-        numPairs = Bt3Zip_MatchFinder_GetMatches2(&p, matches); match_type = 0;
-      } else {
-        numPairs = Bt3Zip_MatchFinder_GetMatches3(&p, matches, dist_258); match_type = 0;
+    if constexpr (use_cached_matches) {
+      matches = c->cache + c->pointer;
+      numPairs = *matches;
+      matches++;
+      c->pointer += numPairs + 1;
+    } else if (storeincache){
+      if (c->size < c->pointer + (ZOPFLI_MAX_MATCH - ZOPFLI_MIN_MATCH + 1) * 2 + 1){
+        c->size *= 2;
+        c->cache = (unsigned short *)realloc(c->cache, c->size * sizeof(unsigned short));
       }
+      matches = c->cache + c->pointer + 1;
+      numPairs = Bt3Zip_MatchFinder_GetMatches(&p, matches);
+      *(matches - 1) = numPairs;
+      c->pointer += numPairs + 1;
+      match_type = 0;
+    } else if (match_type == 0) {
+      numPairs = Bt3Zip_MatchFinder_GetMatches(&p, matches);
+    } else if (match_type == RLE) {
+      numPairs = Bt3Zip_MatchFinder_GetMatches2(&p, matches);
+      match_type = 0;
+    } else {
+      numPairs = Bt3Zip_MatchFinder_GetMatches3(&p, matches, dist_258);
+      match_type = 0;
     }
-    else {
-        if (c->size < c->pointer + (ZOPFLI_MAX_MATCH - ZOPFLI_MIN_MATCH + 1) * 2 + 1){
-          c->size *= 2;
-          c->cache = realloc(c->cache, c->size * sizeof(unsigned short));
-        }
-        matches = c->cache + c->pointer + 1;
-        numPairs = Bt3Zip_MatchFinder_GetMatches(&p, matches);
-        *(matches - 1) = numPairs;
-        c->pointer += numPairs + 1;
-        match_type = 0;
+    const float price = costs[j];
+    float newCost = price + literals[in[i]];
+    if (newCost < costs[j + 1]) {
+      costs[j + 1] = newCost;
+      length_array[j + 1] = 1U + (in[i] << 24);
     }
+
     if (numPairs){
       const unsigned short * mend = matches + numPairs;
-      //It would be really nice to get this faster, but that seems impossible. Using AVX1 is slower.
+      // It would be really nice to get this faster, but that seems impossible. Using AVX1 is slower.
       if (matches[0] == ZOPFLI_MAX_MATCH) {
-        dist_258 = matches[1];
-        if (dist_258 == 1) {match_type = ML_RLE;}
-        else if (i + ZOPFLI_MAX_MATCH < inend && in[i + ZOPFLI_MAX_MATCH] == in[i + ZOPFLI_MAX_MATCH - dist_258]) {match_type = ML_MATCH;}
+        if constexpr (use_cached_matches) {
+          if (matches[1] == 1) {match_type = ML_RLE;}
+        } else {
+          dist_258 = matches[1];
+          if (dist_258 == 1) {match_type = ML_RLE;}
+          else if (i + ZOPFLI_MAX_MATCH < inend && in[i + ZOPFLI_MAX_MATCH] == in[i + ZOPFLI_MAX_MATCH - dist_258]) {match_type = ML_MATCH;}
+        }
         unsigned dist = matches[1];
-        costs[j + ZOPFLI_MAX_MATCH] = costs[j] + disttable[dist] + litlentable[ZOPFLI_MAX_MATCH];
+        costs[j + ZOPFLI_MAX_MATCH] = costs[j] + d_model.get_cost(dist) + litlentable[ZOPFLI_MAX_MATCH];
         length_array[j + ZOPFLI_MAX_MATCH] = ZOPFLI_MAX_MATCH + (dist << 9);
-      }
-#if 0 //More speed, less compression.
-      else if (*(mend - 2) == ZOPFLI_MAX_MATCH){
-        unsigned dist = matches[numPairs - 1];
-        costs[j + ZOPFLI_MAX_MATCH] = costs[j] + disttable[dist] + litlentable[ZOPFLI_MAX_MATCH];
-        length_array[j + ZOPFLI_MAX_MATCH] = ZOPFLI_MAX_MATCH + (dist << 9);
-      }
-#endif
-      else{
-        if (*(mend - 2) == ZOPFLI_MAX_MATCH && i + ZOPFLI_MAX_MATCH < inend && in[i + ZOPFLI_MAX_MATCH] == in[i + ZOPFLI_MAX_MATCH - *(mend - 1)]){match_type = ML_MATCH; dist_258 = *(mend - 1);}
-        else if (matches[1] == 1 && matches[0] > 3 && i + ZOPFLI_MAX_MATCH < inend) {match_type = RLE;}
-        float price = costs[j];
+      // } else if (*(mend - 2) == ZOPFLI_MAX_MATCH) { // More speed, less compression.
+      //   unsigned dist = matches[numPairs - 1];
+      //   costs[j + ZOPFLI_MAX_MATCH] = costs[j] + d_model.get_cost(dist) + litlentable[ZOPFLI_MAX_MATCH];
+      //   length_array[j + ZOPFLI_MAX_MATCH] = ZOPFLI_MAX_MATCH + (dist << 9);
+      } else {
+        if constexpr (!use_cached_matches) {
+          if (*(mend - 2) == ZOPFLI_MAX_MATCH && i + ZOPFLI_MAX_MATCH < inend && in[i + ZOPFLI_MAX_MATCH] == in[i + ZOPFLI_MAX_MATCH - *(mend - 1)])
+            match_type = ML_MATCH , dist_258 = *(mend - 1);
+          else if (matches[1] == 1 && matches[0] > 3 && i + ZOPFLI_MAX_MATCH < inend)
+            match_type = RLE;
+        }
         unsigned short* mp = matches;
-
-        unsigned curr = ZOPFLI_MIN_MATCH;
+        size_t curr = ZOPFLI_MIN_MATCH;
+        static_assert(std::is_same_v<size_t, uintptr_t>);
         while (mp < mend) {
           unsigned len = *mp++;
           unsigned dist = *mp++;
-          float price2 = price + disttable[dist];
+          float price2 = price + d_model.get_cost(dist);
           dist <<=9;
-
-          /* Speed hack to not consider matches that do not seem promising. While
-           * this may degrade compression by a tiny amount, this is acceptable as
-           * it only affects the first iteration, this should be corrected in
-           * subsequent iterations on higher levels and a high threshold is chosen. */
-          float old_costs = costs[j + len];
-          float new_costs = price2 + litlentable[len];
-          if (new_costs > old_costs + 6.0) {
-            curr = len + 1;
-            continue;
+          if constexpr (!use_cached_matches) {
+            // Speed hack to not consider matches that do not seem promising. While
+            // this may degrade compression by a tiny amount, this is acceptable as
+            // it only affects the first iteration, this should be corrected in
+            // subsequent iterations on higher levels and a high threshold is chosen.
+            float old_costs = costs[j + len];
+            float new_costs = price2 + litlentable[len];
+            if (new_costs > old_costs + 6.0) {
+              curr = len + 1;
+              continue;
+            }
           }
-          // simd impl
-          #include "squeeze.simd.insert.c"
-          // disable auto vectorize here, it cause performance regression
+          // > simd impl
+          float * __restrict x_base = costs + j;
+          unsigned * __restrict y_base = length_array + j;
+          #if defined(__AVX2__)
+          if (curr + 7 <= len) {
+            const __m256 prices = _mm256_set1_ps(price2);
+            for (; curr + 7 <= len; curr += 8) {
+              __m256 candidate = _mm256_add_ps(prices, _mm256_loadu_ps(&litlentable[curr]));
+              __m256 previous = _mm256_loadu_ps(&costs[j + curr]);
+              __m256 better = _mm256_cmp_ps(candidate, previous, _CMP_LT_OQ);
+              if (_mm256_movemask_ps(better)) {
+                __m256i lengths = _mm256_add_epi32(_mm256_set1_epi32(curr + dist), _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7));
+                __m256i previous_lengths = _mm256_loadu_si256((const __m256i*)&length_array[j + curr]);
+                _mm256_storeu_ps(&costs[j + curr], _mm256_blendv_ps(previous, candidate, better));
+                _mm256_storeu_si256((__m256i*)&length_array[j + curr],
+                    _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(previous_lengths), _mm256_castsi256_ps(lengths), better)));
+              }
+            }
+            // remain items can still use simd
+            if (curr <= len) {
+              curr = len - 7;
+              __m256 candidate = _mm256_add_ps(prices, _mm256_loadu_ps(&litlentable[curr]));
+              __m256 previous = _mm256_loadu_ps(&costs[j + curr]);
+              __m256 better = _mm256_cmp_ps(candidate, previous, _CMP_LT_OQ);
+              if (_mm256_movemask_ps(better)) {
+                __m256i lengths = _mm256_add_epi32(_mm256_set1_epi32(curr + dist), _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7));
+                __m256i previous_lengths = _mm256_loadu_si256((const __m256i*)&length_array[j + curr]);
+                _mm256_storeu_ps(&costs[j + curr], _mm256_blendv_ps(previous, candidate, better));
+                _mm256_storeu_si256((__m256i*)&length_array[j + curr],
+                    _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(previous_lengths), _mm256_castsi256_ps(lengths), better)));
+              }
+              curr = len + 1;
+            }
+          }
+          // if (curr + 7 <= len) {
+          //   const __m256 prices = _mm256_set1_ps(price2);
+          //   for (; curr + 15 <= len; curr += 16) {
+          //     const __m256 candidate0 = _mm256_add_ps(prices, _mm256_loadu_ps(&litlentable[curr]));
+          //     const __m256 candidate1 = _mm256_add_ps(prices, _mm256_loadu_ps(&litlentable[curr + 8]));
+          //     const __m256 previous0 = _mm256_loadu_ps(&costs[j + curr]);
+          //     const __m256 previous1 = _mm256_loadu_ps(&costs[j + curr + 8]);
+          //     const __m256 better0 = _mm256_cmp_ps(candidate0, previous0, _CMP_LT_OQ);
+          //     const __m256 better1 = _mm256_cmp_ps(candidate1, previous1, _CMP_LT_OQ);
+          //     if (_mm256_movemask_ps(_mm256_or_ps(better0, better1))) {
+          //       const __m256i lengths0 = _mm256_add_epi32(_mm256_set1_epi32(curr + dist),
+          //           _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7));
+          //       const __m256i lengths1 = _mm256_add_epi32(lengths0, _mm256_set1_epi32(8));
+          //       const __m256i previous_lengths0 = _mm256_loadu_si256((const __m256i*)&length_array[j + curr]);
+          //       const __m256i previous_lengths1 = _mm256_loadu_si256((const __m256i*)&length_array[j + curr + 8]);
+          //       _mm256_storeu_ps(&costs[j + curr], _mm256_blendv_ps(previous0, candidate0, better0));
+          //       _mm256_storeu_ps(&costs[j + curr + 8], _mm256_blendv_ps(previous1, candidate1, better1));
+          //       _mm256_storeu_si256((__m256i*)&length_array[j + curr],
+          //           _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(previous_lengths0),
+          //               _mm256_castsi256_ps(lengths0), better0)));
+          //       _mm256_storeu_si256((__m256i*)&length_array[j + curr + 8],
+          //           _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(previous_lengths1),
+          //               _mm256_castsi256_ps(lengths1), better1)));
+          //     }
+          //   }
+          // }
+          if (curr + 3 <= len) {
+            const __m128 prices = _mm_set1_ps(price2);
+            for (; curr + 3 <= len; curr += 4) {
+              __m128 candidate = _mm_add_ps(prices, _mm_loadu_ps(&litlentable[curr]));
+              __m128 previous = _mm_loadu_ps(&costs[j + curr]);
+              __m128 better = _mm_cmplt_ps(candidate, previous);
+              if (_mm_movemask_ps(better)) {
+                __m128i lengths = _mm_add_epi32(_mm_set1_epi32(curr + dist), _mm_setr_epi32(0, 1, 2, 3));
+                __m128i previous_lengths = _mm_loadu_si128((const __m128i*)&length_array[j + curr]);
+                _mm_storeu_ps(&costs[j + curr], _mm_blendv_ps(previous, candidate, better));
+                _mm_storeu_si128((__m128i*)&length_array[j + curr],
+                    _mm_castps_si128(_mm_blendv_ps(_mm_castsi128_ps(previous_lengths), _mm_castsi128_ps(lengths), better)));
+              }
+            }
+          }
+          #endif
+          #if defined(__ARM_NEON)
+          if (curr + 3 <= len) {
+            const float32x4_t prices = vdupq_n_f32(price2);
+            for (; curr <= len - 3; curr += 4) {
+              float32x4_t x_prev = vld1q_f32(x_base + curr);
+              float32x4_t x = vaddq_f32(prices, vld1q_f32(litlentable + curr));
+              uint32x4_t better = vcltq_f32(x, x_prev);
+              if (vmaxvq_u32(better)) {
+                uint32x4_t y_prev = vld1q_u32(y_base + curr);
+                uint32x4_t y = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
+                vst1q_f32(x_base + curr, vminq_f32(x, x_prev));
+                vst1q_u32(y_base + curr, vbslq_u32(better, y, y_prev));
+              }
+            }
+            if (curr <= len) {
+              curr = len - 3;
+              float32x4_t x_prev = vld1q_f32(x_base + curr);
+              float32x4_t x = vaddq_f32(prices, vld1q_f32(litlentable + curr));
+              uint32x4_t better = vcltq_f32(x, x_prev);
+              if (vmaxvq_u32(better)) {
+                uint32x4_t y_prev = vld1q_u32(y_base + curr);
+                uint32x4_t y = vaddq_u32(vdupq_n_u32(curr + dist), (uint32x4_t){0, 1, 2, 3});
+                vst1q_f32(x_base + curr, vminq_f32(x, x_prev));
+                vst1q_u32(y_base + curr, vbslq_u32(better, y, y_prev));
+              }
+              curr = len + 1;
+            }
+          }
+          #endif
+          // remaining_count
+          // > force cmov branchless
           #if defined(__clang__)
           #pragma clang loop vectorize(disable)
           #elif defined(__GNUC__) && (__GNUC__ >= 14)
           #pragma GCC novector
           #endif
           for (; curr <= len; curr++) {
+            // float x = price2 + litlentable[curr];
+            // float x_prev = x_base[curr];
+            // unsigned y_prev = y_base[curr];
+            // unsigned better = x < x_prev;
+            // x_base[curr] = better ? x : x_prev;
+            // y_base[curr] = __builtin_unpredictable(better) ? curr + dist : y_prev;
             float x = price2 + litlentable[curr];
-            if (x < costs[j + curr]){
-              costs[j + curr] = x;
-              length_array[j + curr] = curr + dist;
-            }
+            float x_prev = costs[j + curr];
+            unsigned y_prev = length_array[j + curr];
+            unsigned better = x < x_prev;
+            costs[j + curr] = better ? x : x_prev;
+            length_array[j + curr] = __builtin_unpredictable(better) ? curr + dist : y_prev;
           }
+          // > origin scalar logic
+          // for (; curr <= len; curr++) {
+          //   float x = price2 + litlentable[curr];
+          //   if (x < costs[j + curr])
+          //     costs[j + curr] = x, length_array[j + curr] = curr + dist;
+          // }
         }
       }
     }
-
-    /* Literal. */
-    float newCost = costs[j] + literals[in[i]];
-    if (newCost < costs[j + 1]) {
-      costs[j + 1] = newCost;
-      length_array[j + 1] = 1U + (in[i] << 24);
-    }
-
-    if (i == inend - ZOPFLI_MAX_MATCH - 1 && mfinexport & 2){
-      CopyMF(&p, &mf);
-      right = 1;
+    if constexpr (!use_cached_matches) {
+      if (i == inend - ZOPFLI_MAX_MATCH - 1 && mfinexport & 2){
+        CopyMF(&p, &mf);
+        right = 1;
+      }
     }
   }
 
-  MatchFinder_Free(&p);
-  if (storeincache){
+  if constexpr (use_cached_matches) {
     c->pointer = 0;
+  } else {
+    MatchFinder_Free(&p);
+    if (storeincache)
+      c->pointer = 0;
   }
-
-  if (!costcontext){
-    free(literals);
-  }
-  free(disttable);
   free(costs);
 }
 
@@ -707,22 +632,14 @@ static void GetBestLengthsultra2(const unsigned char* in, size_t instart, size_t
   size_t i;
 
   unsigned char litlentable [259];
-  unsigned char* disttable = (unsigned char*)malloc(ZOPFLI_WINDOW_SIZE);
-  if (!disttable){
-    exit(1);
-  }
+  DistanceCostModel<unsigned char> d_model(costcontext->d_symbols);
   unsigned char* literals = costcontext->ll_symbols;
   for (i = 3; i < 259; i++){
     litlentable[i] = costcontext->ll_symbols[ZopfliGetLengthSymbol(i)] + ZopfliGetLengthExtraBits(i);
   }
-  for (i = 1; i < 32768; i++){
-    disttable[i] = costcontext->d_symbols[ZopfliGetDistSymbol(i)] + ZopfliGetDistExtraBits(i);
-  }
-
   size_t blocksize = inend - instart;
 
   unsigned* costs = (unsigned*)malloc(sizeof(unsigned) * (blocksize + 1));
-  if (!costs) exit(1); /* Allocation failed. */
   costs[0] = 0;  /* Because it's the start. */
   memset(costs + 1, 127, sizeof(float) * blocksize);
 
@@ -746,7 +663,7 @@ static void GetBestLengthsultra2(const unsigned char* in, size_t instart, size_t
       while (mp < mend){
         unsigned len = *mp++;
         unsigned dist = *mp++;
-        unsigned price2 = price + disttable[dist];
+        unsigned price2 = price + d_model.get_cost(dist);
         for (unsigned curr = ZOPFLI_MIN_MATCH; curr <= len; curr++) {
           unsigned x = price2 + litlentable[curr];
           if (x < costs[j + curr]){
@@ -765,7 +682,6 @@ static void GetBestLengthsultra2(const unsigned char* in, size_t instart, size_t
     }
   }
 
-  free(disttable);
   free(costs);
 }
 
@@ -914,14 +830,12 @@ returns the cost that was, according to the costmodel, needed to get to the end.
 */
 static void LZ77OptimalRun(const ZopfliOptions* options, const unsigned char* in, size_t instart, size_t inend, unsigned* length_array, void* costcontext, ZopfliLZ77Store* store, unsigned char storeincache, LZCache* c, unsigned mfinexport, unsigned ultra2) {
   if (ultra2) {
-    GetBestLengthsultra2(in, instart, inend, costcontext, length_array);
-  }
-  else{
-    if(storeincache == 2){
-      GetBestLengths2(in, instart, inend, costcontext, length_array, c);
-    }
-    else{
-        GetBestLengths(options, in, instart, inend, costcontext, length_array, storeincache, c, mfinexport);
+    GetBestLengthsultra2(in, instart, inend, (iSymbolStats*)costcontext, length_array);
+  } else {
+    if(storeincache == 2) {
+      GetBestLengths<true>  (nullptr, in, instart, inend, (SymbolStats*)costcontext, length_array, 0, c, 0);
+    } else {
+      GetBestLengths<false> (options, in, instart, inend, (SymbolStats*)costcontext, length_array, storeincache, c, mfinexport);
     }
   }
 
@@ -948,8 +862,6 @@ static void ZopfliLZ77Optimal(const ZopfliOptions* options,
   /* Try randomizing the costs a bit once the size stabilizes. */
   RanState ran_state;
   int lastrandomstep = -1;
-
-  if (!length_array) exit(1); /* Allocation failed. */
 
   InitRanState(&ran_state);
   ZopfliInitLZ77Store(&currentstore);
@@ -1247,7 +1159,6 @@ void ZopfliLZ77Optimal2(const ZopfliOptions* options,
   ZopfliInitLZ77Store(store);
   /* Dist to get to here with smallest cost. */
   unsigned* length_array = (unsigned*)malloc(sizeof(unsigned) * (inend - instart + 1));
-  if (!length_array) exit(1); /* Allocation failed. */
   LZ77OptimalRun(options, in, instart, inend, length_array, options->reuse_costmodel ? &st : &stats, store, 0, 0, mfinexport, 0);
   free(length_array);
 
@@ -1263,7 +1174,6 @@ void ZopfliLZ77OptimalFixed(const ZopfliOptions* options,
 {
   /* Dist to get to here with smallest cost. */
   unsigned* length_array = (unsigned*)malloc(sizeof(unsigned) * (inend - instart + 1));
-  if (!length_array) exit(1); /* Allocation failed. */
 
   /* Shortest path for fixed tree This one should give the shortest possible
   result for fixed tree, no repeated runs are needed since the tree is known. */
