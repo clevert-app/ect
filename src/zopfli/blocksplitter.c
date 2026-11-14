@@ -41,7 +41,7 @@ typedef struct SplitCostContext {
  Gets the cost which is the sum of the cost of the left and the right section
  of the data.
  */
-static double SplitCost(size_t i, SplitCostContext* c, unsigned char searchext, unsigned entropysplit, const size_t* ll_count, const size_t* d_count, const size_t* ll_count2, const size_t* d_count2, size_t pos2) {
+static double SplitCost(size_t i, SplitCostContext* c, unsigned char searchext, unsigned entropysplit, const size_t* ll_count, const size_t* d_count, size_t* ll_count2, size_t* d_count2, size_t* pos2) {
   double result = 3;
   unsigned ll_lengths[288];
   unsigned d_lengths[32];
@@ -55,11 +55,13 @@ static double SplitCost(size_t i, SplitCostContext* c, unsigned char searchext, 
   size_t d_counts[32];
   unsigned x = i - c->start < c->end - i;
   unsigned dist = x ? i - c->start : c->end - i;
-  unsigned dist2 = i > pos2 ? i - pos2 : pos2 - i;
-  if(dist2 < dist && dist2){
-    x = i > pos2;
+  unsigned dist2 = i > *pos2 ? i - *pos2 : *pos2 - i;
+  unsigned prefix = x;
+  if(dist2 < dist){
+    x = i > *pos2;
+    prefix = 1;
     if(x){
-      ZopfliLZ77Counts(c->litlens, c->dists, pos2, i, ll_counts, d_counts, c->symbols);
+      ZopfliLZ77Counts(c->litlens, c->dists, *pos2, i, ll_counts, d_counts, c->symbols);
       for(size_t ix = 0; ix < 286; ix++){
         ll_counts[ix] = ll_count2[ix] + ll_counts[ix];
       }
@@ -68,7 +70,7 @@ static double SplitCost(size_t i, SplitCostContext* c, unsigned char searchext, 
       }
     }
     else{
-      ZopfliLZ77Counts(c->litlens, c->dists, i, pos2, ll_counts, d_counts, c->symbols);
+      ZopfliLZ77Counts(c->litlens, c->dists, i, *pos2, ll_counts, d_counts, c->symbols);
       for(size_t ix = 0; ix < 286; ix++){
         ll_counts[ix] = ll_count2[ix] - ll_counts[ix];
       }
@@ -86,12 +88,18 @@ static double SplitCost(size_t i, SplitCostContext* c, unsigned char searchext, 
   result += CalculateTreeSize(ll_lengths, d_lengths, searchext, &dummy);
   result += 3;
   for(size_t ix = 0; ix < 286; ix++){
-    ll_counts[ix] = ll_count[ix] - ll_counts[ix];
+    size_t other = ll_count[ix] - ll_counts[ix];
+    ll_count2[ix] = prefix ? ll_counts[ix] : other;
+    ll_counts[ix] = other;
   }
   for(size_t ix = 0; ix < 30; ix++){
-    d_counts[ix] = d_count[ix] - d_counts[ix];
+    size_t other = d_count[ix] - d_counts[ix];
+    d_count2[ix] = prefix ? d_counts[ix] : other;
+    d_counts[ix] = other;
   }
   ll_counts[256] = 1;
+  ll_count2[256] = 1;
+  *pos2 = i;
   result += entropysplit ? GetDynamicLengths2(ll_lengths, d_lengths, ll_counts, d_counts) : GetDynamicLengthsuse(ll_lengths, d_lengths, ll_counts, d_counts);
   result += CalculateTreeSize(ll_lengths, d_lengths, searchext, &dummy);
   return result;
@@ -108,7 +116,7 @@ static size_t FindMinimum(SplitCostContext* context, size_t start, size_t end, u
   size_t ll_count2[288];
   size_t d_count2[32];
   ZopfliLZ77Counts(context->litlens, context->dists, context->start, context->end, ll_count, d_count, context->symbols);
-  size_t pos2 = context->end - (context->end - context->start) / 2;
+  size_t pos2 = context->start;
   ZopfliLZ77Counts(context->litlens, context->dists, context->start, pos2, ll_count2, d_count2, context->symbols);
 
 
@@ -128,7 +136,7 @@ static size_t FindMinimum(SplitCostContext* context, size_t start, size_t end, u
     if (end - start <= options->num){
       if (options->numiterations > 30){
         for (unsigned j = 0; j < end - start; j++){
-          double cost = SplitCost(start + j, context, options->searchext & 2, options->entropysplit, ll_count, d_count, ll_count2, d_count2, pos2);
+          double cost = SplitCost(start + j, context, options->searchext & 2, options->entropysplit, ll_count, d_count, ll_count2, d_count2, &pos2);
           if (cost < best){
             best = cost;
             pos = start + j;
@@ -139,13 +147,15 @@ static size_t FindMinimum(SplitCostContext* context, size_t start, size_t end, u
     }
     if (end - start <= startsize/100 && startsize > 600 && options->num == 3) break;
 
-    for (i = 0; i < options->num; i++) {
+    unsigned reverse = pos2 > start + (end - start) / 2;
+    for (size_t probe = 0; probe < options->num; probe++) {
+      i = reverse ? options->num - 1 - probe : probe;
       p[i] = start + (i + 1) * ((end - start) / (options->num + 1));
       if (pos == p[i] || (i == (options->num - 1) / 2 && prevstore != -1 && options->num == 3)){
         vp[i] = best;
         continue;
       }
-      vp[i] = SplitCost(p[i], context, options->searchext & 2, options->entropysplit, ll_count, d_count, ll_count2, d_count2, pos2);
+      vp[i] = SplitCost(p[i], context, options->searchext & 2, options->entropysplit, ll_count, d_count, ll_count2, d_count2, &pos2);
     }
     besti = 0;
     best = vp[0];
@@ -164,7 +174,7 @@ static size_t FindMinimum(SplitCostContext* context, size_t start, size_t end, u
     pos = p[besti];
     lastbest = best;
   }
-  double origcost = SplitCost(context->end, context, options->searchext & 2, options->entropysplit, ll_count, d_count, ll_count2, d_count2, pos2);
+  double origcost = SplitCost(context->end, context, options->searchext & 2, options->entropysplit, ll_count, d_count, ll_count2, d_count2, &pos2);
   if(origcost <= best){
     pos = ostart;
   }
