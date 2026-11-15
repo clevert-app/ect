@@ -46,102 +46,6 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 (*size)++;\
 }
 
-static void ZopfliZipCompress(unsigned mode, unsigned multithreading,
-                              const unsigned char* in, size_t insize, time_t time, std::string name,
-                              unsigned char** out, size_t* outsize) {
-  static const unsigned char filePKh[10]     = { 80, 75,  3,  4, 20,  0,  2,  0,  8,  0};
-  static const unsigned char CDIRPKh[12]     = { 80, 75,  1,  2, 20,  0, 20,  0,  2,  0,  8,  0};
-  static const unsigned char CDIRPKs[12]     = {  0,  0,  0,  0,  0,  0,  0,  0, 32,  0,  0,  0};
-  static const unsigned char EndCDIRPKh[12]  = { 80, 75,  5,  6,  0,  0,  0,  0,  1,  0,  1,  0};
-
-  unsigned long crcvalue = crc32(0, in, insize);
-  unsigned long i;
-  std::string infilename = name.substr(name.find_last_of('/') + 1);
-  size_t max = infilename.size();
-  *out = (unsigned char*)realloc(*out, 200);
-
-  struct tm* times = localtime(&time);
-  unsigned long dostime = times->tm_year < 80 ? 0x00210000 : times->tm_year > 207 ? 0xFF9FBF7D : (
-                            (times->tm_year - 80) << 25 | (times->tm_mon + 1) << 21 | times->tm_mday << 16
-                            | times->tm_hour << 11 | times->tm_min << 5 | times->tm_sec >> 1
-                          );
-
-  /* File PK STATIC DATA + CM */
-
-  for(i=0;i<sizeof(filePKh);++i) ZOPFLI_APPEND_DATA(filePKh[i],out,outsize);
-
-  /* MS-DOS TIME */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA((dostime >> (i*8)) % 256, out, outsize);
-
-  /* CRC */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA((crcvalue >> (i*8)) % 256, out, outsize);
-
-  /* OSIZE NOT KNOWN YET - WILL UPDATE AFTER COMPRESSION */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA(0, out, outsize);
-
-  /* ISIZE */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA((insize >> (i*8)) % 256, out, outsize);
-
-  /* FNLENGTH */
-  for(i=0;i<2;++i) ZOPFLI_APPEND_DATA((max >> (i*8)) % 256, out, outsize);
-
-  /* NO EXTRA FLAGS */
-  for(i=0;i<2;++i) ZOPFLI_APPEND_DATA(0, out, outsize);
-
-  /* FILENAME */
-  for(i=0;i<max;++i) ZOPFLI_APPEND_DATA(infilename[i], out, outsize);
-  unsigned long rawdeflsize = *outsize;
-
-  ZopfliBuffer(mode, multithreading, in, insize, out, outsize);
-  *out = (unsigned char*)realloc(*out, 200 + *outsize);
-
-  rawdeflsize = *outsize - rawdeflsize;
-
-  /* C-DIR PK HEADER STATIC DATA */
-  unsigned long cdirsize = *outsize;
-  for(i=0;i<sizeof(CDIRPKh);++i) ZOPFLI_APPEND_DATA(CDIRPKh[i],out,outsize);
-
-  /* MS-DOS TIME, CRC, OSIZE, ISIZE FROM */
-
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA((dostime >> (i*8)) % 256, out, outsize);
-
-  /* CRC */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA((crcvalue >> (i*8)) % 256,out,outsize);
-
-  /* OSIZE + UPDATE IN PK HEADER */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA((rawdeflsize >> (i*8)) % 256,out,outsize);
-  for(i=0;i<4;++i) (*out)[18+i]=(rawdeflsize >> (i*8)) % 256;
-
-  /* ISIZE */
-  for(i=0;i<25;i+=8) ZOPFLI_APPEND_DATA((insize >> i) % 256,out,outsize);
-
-  /* FILENAME LENGTH */
-  for(i=0;i<2;++i) ZOPFLI_APPEND_DATA((max >> (i*8)) % 256,out,outsize);
-
-  /* C-DIR STATIC DATA */
-  for(i=0;i<sizeof(CDIRPKs);++i) ZOPFLI_APPEND_DATA(CDIRPKs[i],out,outsize);
-
-  /* FilePK offset in ZIP file */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA(0,out,outsize);
-  unsigned long cdiroffset= rawdeflsize + 30 + max;
-
-  /* FILENAME */
-  for(i=0; i<max;++i) ZOPFLI_APPEND_DATA(infilename[i],out,outsize);
-  cdirsize = *outsize - cdirsize;
-
-  /* END C-DIR PK STATIC DATA + TOTAL FILES (ALWAYS 1) */
-  for(i=0;i<sizeof(EndCDIRPKh);++i) ZOPFLI_APPEND_DATA(EndCDIRPKh[i],out,outsize);
-
-  /* C-DIR SIZE */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA((cdirsize >> (i*8)) % 256,out, outsize);
-
-  /* C-DIR OFFSET */
-  for(i=0;i<4;++i) ZOPFLI_APPEND_DATA((cdiroffset >> (i*8)) % 256,out, outsize);
-
-  /* NO COMMENTS IN END C-DIR */
-  for(i=0;i<2;++i) ZOPFLI_APPEND_DATA(0, out, outsize);
-}
-
 /*
 Compresses the data according to the gzip specification.
 */
@@ -296,7 +200,7 @@ int ZopfliGzip(const char* infilename, const char* outfilename, unsigned mode, u
     ZopfliGzipCompress(mode, multithreading, in, insize, time, &out, &outsize, (std::string)(gzip_name ? gzip_name : ""));
   }
   else {
-    ZopfliZipCompress(mode, multithreading, in, insize, time, infilename, &out, &outsize);
+    exit(1); // the ZIP support in ZopfliGzip function is removed
   }
   free(in);
 
