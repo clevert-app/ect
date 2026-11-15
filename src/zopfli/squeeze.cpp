@@ -1147,7 +1147,7 @@ void ZopfliLZ77Optimal2(const ZopfliOptions* options,
         }
       }
     }
-    if (!costmodelnotinited && !options->multithreading){
+    if (!costmodelnotinited && options->multithreading == 1){
       MixCostmodels(&st, &stats, .2);
     }
   }
@@ -1162,7 +1162,7 @@ void ZopfliLZ77Optimal2(const ZopfliOptions* options,
   LZ77OptimalRun(options, in, instart, inend, length_array, options->reuse_costmodel ? &st : &stats, store, 0, 0, mfinexport, 0);
   free(length_array);
 
-  if (!options->multithreading){
+  if (options->multithreading == 1){
     GetStatistics(store, &st);
   }
 }

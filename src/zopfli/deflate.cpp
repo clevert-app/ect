@@ -1375,7 +1375,7 @@ void ZopfliDeflate(const ZopfliOptions* options, int final,
     return;
   }
 #ifndef NOMULTI
-  if(options->multithreading > 1 && insize >= options->noblocksplit){
+  if(options->multithreading != 1 && insize >= options->noblocksplit){
     ZopfliDeflateMulti(options, final, in, insize, bp, out, outsize);
     return;
   }

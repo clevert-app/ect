@@ -71,7 +71,7 @@ typedef struct ZopfliOptions {
   /*When using more than one iteration, this will save the found matches on the first run so they don't need to be found again. Uses large amounts of memory.*/
   unsigned useCache;
 
-  /*Use per block multithreading*/
+  /*Per block multithreading, threads count, 0 is illegal, 1 means single thread, allows 1, 2, 3, 4 etc.*/
   unsigned multithreading;
 
   /*Use tuning for PNG files*/
