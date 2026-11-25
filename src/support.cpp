@@ -116,6 +116,14 @@ int read_file(const char *name, uint8_t **out_buf, size_t *out_size) {
   return 0;
 }
 
+int parse_threads_count(const char *env_name, const char *opt_v) {
+  const char *s = env_name ? getenv(env_name) : nullptr;
+  s = s ? s : opt_v;
+  assert_with_msg(s != nullptr, "");
+  int v = strcmp(s, "phy") == 0 ? get_phy_core_count() : (int)strtol(s, NULL, 10);
+  return std::max(1, v == 0 ? (int)std::thread::hardware_concurrency() : v);
+}
+
 // cpu phy core count, inspired by https://github.com/pytorch/cpuinfo , License:
 // BSD-2-Clause-1-ov-file
 

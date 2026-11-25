@@ -22,9 +22,6 @@
 #else
 #include <unistd.h>
 #endif
-// clang-format off
-#define assert_with_msg(v, msg, ...) do { if (!(v)) { fprintf(stderr, "error: " msg "\n", ##__VA_ARGS__); exit(1); } } while (0)
-// clang-format on
 
 static struct Opt {
   char *output = nullptr; // no output means inplace
@@ -38,10 +35,11 @@ static struct Opt {
   bool optimize_inside = false;
   int png_filter = 77;
   int png_pal_sort = 0;
-  char *mt_zip = nullptr; // "0", "phy", "1", "2", "4" and more
+  const char *mt_block = "1";
+  const char *mt_zip = "phy";
 } opt;
 
-static void show_usage() {
+static void show_help(bool is_long_help) {
   // follow date --help
   // clang-format off
   printf(
@@ -55,23 +53,42 @@ static void show_usage() {
     "\n"
     "Options:\n"
     "  --output, -o FILE  Output file path\n"
-    "  -2 to -9           Set compression level (default: 3)\n"
+    "  -2 to -9           Set compression level, default is 3\n"
     "  --strip            Strip metadata\n"
     "  --zip              Create new ZIP with file(s), must use with --output\n"
     "  --gzip             Compress stdin with GZIP, write to --output or stdout\n"
     "  --quiet            Do not print size info\n"
-    "  --help, -h         Print this help document\n"
-    "  --strict           Enable strict lossless PNG\n"
-    "  --compress-stored  Deflate stored ZIP entries (may break some formats like APK)\n"
+    "  --strict           Enable strict mode in some formats\n"
+    "  --compress-stored  Deflate stored ZIP entries (may break formats like APK)\n"
     "  --optimize-inside  Optimize supported entries inside ZIP\n"
-    "  --png-filter N     PNG filter strategy, (0-4, 6, 12, 77, 79)\n"
+    "  --png-filter N     PNG filter strategy, default is 77 (auto), see long help\n"
     "  --png-pal-sort N   Try N different PNG palette strategies (0-120)\n"
-    "  --mt-zip N         N threads for ZIP entries, N = 0 (all), phy, 1, 2 and more\n"
+    "  --mt-block N       N threads for zopfli blocks, N = 0, phy, 1, 2 and more\n"
+    "  --mt-zip N         N threads for ZIP entries, see long help\n"
+    "  --help, -h         Print this help document, use --long-help to show more\n"
     "\n"
     "About:\n"
     "  Homepage: https://github.com/clevert-app/ect\n"
-    "  Version: 2.0.1-alpha.3\n"
+    "  Version: 2.0.1-alpha.6\n"
     "  Build date: " __DATE__ " " __TIME__ "\n"
+  );
+  if (!is_long_help)
+    return;
+  printf(
+    "Details:\n"
+    "  Compression level:\n"
+    "  PNG filter:\n"
+    "    The PNG format allows different filters for each scanline.\n"
+    "    In --png-filter N option, 0-4 use fixed filter N for whole image.\n"
+    "    N = 6 reuse input image filters.\n"
+    "    N = 12 use a smart filter estimator.\n"
+    "    N = 77 is default, auto choose 0 or 12, because sometimes 0 is best.\n"
+    "    N = 79 try all above and very slow.\n"
+    "  Multi threading:\n"
+    "    Options --mt-block N and --mt-zip N, accepts N = 0, phy, 1, 2, 3, etc.\n"
+    "    N = 0 use all logical cores, N = phy use all physical cores.\n"
+    "    The --mt-block N controls block level threading, default is 1.\n"
+    "    Using --mt-zip N will not affect the ratio, default is phy.\n"
   );
   // clang-format on
 }
@@ -105,13 +122,14 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
     ret = zout.open(outname, zout_flags);
     assert_with_msg(ret == OK, "unable to open zip file %s", outname);
     for (const std::string &input_file : list) {
+      // todo: fit --mt-zip
       uint8_t *in_buf = nullptr;
       size_t in_size = 0;
       assert_with_msg(read_file(input_file.c_str(), &in_buf, &in_size) == 0, "read file failed");
       std::unique_ptr<uint8_t, decltype(&free)> in_buf_(in_buf, free);
       uint8_t *out_buf = nullptr;
       size_t out_size = 0;
-      ZopfliBuffer(opt.mode, 0, in_buf, in_size, &out_buf, &out_size);
+      ZopfliBuffer(opt.mode, 1, in_buf, in_size, &out_buf, &out_size);
       std::unique_ptr<uint8_t, decltype(&free)> out_buf_(out_buf, free);
       int method = ZipEntry::kCompressDeflated;
       assert_with_msg(out_size < UINT32_MAX, "invalid call");
@@ -123,8 +141,6 @@ static int zip_handler(const std::vector<std::string> &list, bool recompress, co
   }
   // want to recompress, use zipalign without align
   assert_with_msg(recompress && list.size() == 1, "invalid call");
-  static std::atomic<bool> has_been_called{false};
-  assert_with_msg(!has_been_called.exchange(true), "zip recompress only once per process");
   const char *input_name = list[0].c_str();
   return android::process(input_name, outname, 4, true, true, false, 4096, opt.compress_stored);
 }
@@ -137,8 +153,8 @@ static int gzip_handler(const std::string &input_file, long long input_size, con
   assert_with_msg(is_gz != 2, "bad gzip file");
   assert_with_msg(!(is_gz == 3 && opt.strict), "strict mode on, gzip has extra field");
   assert_with_msg(!exists(outname), "output file %s already exists", outname);
-  unsigned char multithreading = 0;
-  return ZopfliGzip(input_file.c_str(), outname, opt.mode, multithreading, false, true, gzip_name);
+  static unsigned mt_block = parse_threads_count(nullptr, opt.mt_block);
+  return ZopfliGzip(input_file.c_str(), outname, opt.mode, mt_block, false, true, gzip_name);
 }
 
 static int png_handler(const std::string &input_file, long long input_size, const char *outname) {
@@ -306,7 +322,7 @@ static void multi_call(int argc, char *argv[]) {
 
 int zipalign_get_zopfli_level() {
   static const int ret = []() {
-    char *s = getenv("ZIPALIGN_ZOPFLI_LEVEL");
+    const char *s = getenv("ZIPALIGN_ZOPFLI_LEVEL");
     int v = s ? (int)strtol(s, NULL, 10) : opt.mode;
     return (2 <= v && v <= 9) ? v : 4; // 2-9 , default = 4, not 3
   }();
@@ -315,11 +331,7 @@ int zipalign_get_zopfli_level() {
 
 int zipalign_get_threads_count() {
   static const int ret = []() {
-    char *s = opt.mt_zip ? opt.mt_zip : getenv("ZIPALIGN_THREADS_COUNT");
-    if (s == nullptr)
-      return 1;
-    int v = strcmp(s, "phy") == 0 ? get_phy_core_count() : (int)strtol(s, NULL, 10);
-    return std::max(1, v == 0 ? (int)std::thread::hardware_concurrency() : v);
+    return parse_threads_count("ZIPALIGN_THREADS_COUNT", opt.mt_zip);
   }();
   return ret;
 }
@@ -329,7 +341,7 @@ int main(int argc, char *argv[]) {
   multi_call(argc, argv);
   // main logic
   if (argc < 2) {
-    show_usage();
+    show_help(false);
     return 0;
   }
   std::vector<char *> files;
@@ -370,11 +382,17 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(arg, "--png-pal-sort") == 0 && i + 1 < argc) {
       opt.png_pal_sort = (int)strtol(argv[i + 1], NULL, 10);
       i++;
+    } else if (strcmp(arg, "--mt-block") == 0 && i + 1 < argc) {
+      opt.mt_block = argv[i + 1];
+      i++;
     } else if (strcmp(arg, "--mt-zip") == 0 && i + 1 < argc) {
       opt.mt_zip = argv[i + 1];
       i++;
     } else if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
-      show_usage();
+      show_help(false);
+      return 0;
+    } else if (strcmp(arg, "--long-help") == 0) {
+      show_help(true);
       return 0;
     } else {
       printf("error on arg %s", arg);
@@ -397,7 +415,7 @@ int main(int argc, char *argv[]) {
       assert_with_msg(fd_out, "open output file failed");
       fd_out_.reset(fd_out);
     }
-    // stdin, ignore multi thread block support
+    // todo: --mt-block
     return ZopfliGzipStream(opt.mode, stdin, fd_out);
   }
   if (opt.output != nullptr && !opt.zip) {

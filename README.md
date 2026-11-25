@@ -4,7 +4,9 @@ The `ect` is a optimizer for GZIP, ZIP, PNG and more formats. This is a friendly
 
 ## Usage and download
 
-https://github.com/clevert-app/ect/releases
+Download from [releases](https://github.com/clevert-app/ect/releases).
+
+See `./ect --help`. For example, to optimize a `xlsx` file (MS Office file is a valid ZIP), run `ect -o output.xlsx input.xlsx`.
 
 ## Performance
 
@@ -25,7 +27,7 @@ https://github.com/clevert-app/ect/releases
 | zopfli -i15    | 34966078 | 301.01 |
 | zopfli_krzy    | 35001660 | 245.79 |
 
-- ect = this repo version `2.0.1-alpha.2`
+- ect = this repo version `2.0.1-alpha.6`
 - ect_fhanau = [origin fhanau ect `e711c5e`](https://github.com/fhanau/Efficient-Compression-Tool/tree/e711c5ea9d725d02db546ce926a66b91b68ecb3a)
 - zopfli = [google zopfli `df1517d`](https://github.com/google/zopfli/tree/df1517dd8518113a245e4d203a04b8a0e02ab493)
 - zopfli_krzy = [krzymod zopfli `24.10.2`](https://github.com/MrKrzYch00/zopfli/releases/tag/v24.10.2)
