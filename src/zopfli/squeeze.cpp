@@ -120,21 +120,22 @@ length_array: output array of size (inend - instart) which will receive the best
 
 typedef struct _LZCache{
   unsigned short* cache;
+  unsigned short* counts;
   size_t size;
-  size_t pointer;
 } LZCache;
 
 static void CreateCache(size_t len, LZCache* c){
   c->size = len + 513;
   c->cache = (unsigned short*)malloc(c->size * sizeof(unsigned short));
-  if (!c->cache){
+  c->counts = (unsigned short*)malloc(len * sizeof(*c->counts));
+  if (!c->cache || !c->counts){
     exit(1);
   }
-  c->pointer = 0;
 }
 
 static void CleanCache(LZCache* c){
   free(c->cache);
+  free(c->counts);
 }
 
 thread_local CMatchFinder mf;
@@ -342,6 +343,9 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
   const unsigned int ML_RLE = 3;
   unsigned match_type = 0;
   unsigned dist_258 = inend + 1;
+  // Keep record sizes contiguous so replay can read ahead independently of the pairs.
+  unsigned short* counts = (use_cached_matches || storeincache) ? c->counts : nullptr;
+  size_t pair_offset = 0;
   for (i = instart; i < inend; i++) {
     size_t j = i - instart; // Index in the costs array and length_array
 
@@ -400,19 +404,18 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
 
     int numPairs;
     if constexpr (use_cached_matches) {
-      matches = c->cache + c->pointer;
-      numPairs = *matches;
-      matches++;
-      c->pointer += numPairs + 1;
+      matches = c->cache + pair_offset;
+      numPairs = *counts++;
+      pair_offset += numPairs;
     } else if (storeincache){
-      if (c->size < c->pointer + (ZOPFLI_MAX_MATCH - ZOPFLI_MIN_MATCH + 1) * 2 + 1){
+      if (c->size < pair_offset + (ZOPFLI_MAX_MATCH - ZOPFLI_MIN_MATCH + 1) * 2){
         c->size *= 2;
         c->cache = (unsigned short *)realloc(c->cache, c->size * sizeof(unsigned short));
       }
-      matches = c->cache + c->pointer + 1;
+      matches = c->cache + pair_offset;
       numPairs = Bt3Zip_MatchFinder_GetMatches(&p, matches);
-      *(matches - 1) = numPairs;
-      c->pointer += numPairs + 1;
+      *counts++ = numPairs;
+      pair_offset += numPairs;
       match_type = 0;
     } else if (match_type == 0) {
       numPairs = Bt3Zip_MatchFinder_GetMatches(&p, matches);
@@ -609,12 +612,8 @@ static void GetBestLengths(const ZopfliOptions* options, const unsigned char* in
     }
   }
 
-  if constexpr (use_cached_matches) {
-    c->pointer = 0;
-  } else {
+  if constexpr (!use_cached_matches) {
     MatchFinder_Free(&p);
-    if (storeincache)
-      c->pointer = 0;
   }
   free(costs);
 }
@@ -676,88 +675,27 @@ static void GetBestLengthsultra2(const unsigned char* in, size_t instart, size_t
   free(costs);
 }
 
-/*
-Calculates the optimal path of lz77 lengths to use, from the calculated
-length_array. The length_array must contain the optimal length to reach that
-byte. The path will be filled with the lengths to use, so its data size will be
-the amount of lz77 symbols.
-*/
-static void TraceBackwards(size_t size, const unsigned* length_array,
-                           unsigned** path, size_t* pathsize) {
-  size_t osize = size * sizeof(unsigned);
-  size_t allocsize = size / ZOPFLI_MAX_MATCH + 50;
-  *path = (unsigned*)malloc(allocsize * sizeof(unsigned));
-  for (;size;) {
-    unsigned space = allocsize - (*pathsize);
-
-
-    while(size > ZOPFLI_MAX_MATCH * 64 && space > 64){
-      unsigned endsize = (*pathsize) + 64;
-      for (;(*pathsize) < endsize;) {
-        (*path)[*pathsize] = length_array[size];
-        (*pathsize)++;
-        size -= (length_array[size] & 511);
-        (*path)[*pathsize] = length_array[size];
-        (*pathsize)++;
-        size -= (length_array[size] & 511);
-        (*path)[*pathsize] = length_array[size];
-        (*pathsize)++;
-        size -= (length_array[size] & 511);
-        (*path)[*pathsize] = length_array[size];
-        (*pathsize)++;
-        size -= (length_array[size] & 511);
-#ifdef __GNUC__
-        __builtin_prefetch (&length_array[size - 102]);
-        __builtin_prefetch (&length_array[size - 86]);
-        __builtin_prefetch (&length_array[size - 70]);
-        __builtin_prefetch (&length_array[size - 54]);
-#endif
-      }
-      space -= 64;
-    }
-
-    while(space-- && size){
-      (*path)[*pathsize] = length_array[size];
-      (*pathsize)++;
-      size -= (length_array[size] & 511);
-    }
-    if(*pathsize == allocsize && space){
-      allocsize *= 2;
-      if (allocsize > osize){
-        allocsize = osize;
-      }
-      *path = (unsigned*)realloc(*path, allocsize * sizeof(unsigned));
-    }
+/* Compact the chosen path into the tail of the predecessor array. Each step
+   consumes at least one byte, so the write cursor stays above unread entries. */
+static void TraceBackwards(size_t size, unsigned* length_array, ZopfliLZ77Store* store) {
+  unsigned* end = length_array + size + 1;
+  unsigned* path = end;
+  while (size) {
+    unsigned step = length_array[size];
+    *--path = step;
+    size -= step & 511;
   }
-}
-
-static void FollowPath(unsigned* path, size_t pathsize, ZopfliLZ77Store* store) {
-  store->litlens = (unsigned short*)malloc(pathsize * sizeof(unsigned short));
-  store->dists = (unsigned short*)malloc(pathsize * sizeof(unsigned short));
-  if (!store->litlens || !store->dists){
-    exit(1);
+  size_t count = end - path;
+  store->litlens = (unsigned short*)malloc(count * sizeof(*store->litlens));
+  store->dists = (unsigned short*)malloc(count * sizeof(*store->dists));
+  if (count && (!store->litlens || !store->dists)) exit(1);
+  for (size_t i = 0; i < count; ++i) {
+    unsigned step = path[i];
+    unsigned length = step & 511;
+    store->litlens[i] = length == 1 ? step >> 24 : length;
+    store->dists[i] = length == 1 ? 0 : step >> 9;
   }
-
-  /*pathsize contains matches in reverted order.*/
-  for (size_t i = pathsize - 1;; i--) {
-    unsigned short length = path[i] & 511;
-
-    /* Add to output. */
-    if (length >= ZOPFLI_MIN_MATCH) {
-
-      unsigned short dist = path[i] >> 9;
-
-      store->litlens[store->size] = length;
-      store->dists[store->size] = dist;
-
-    } else {
-      store->litlens[store->size] = path[i] >> 24;
-      store->dists[store->size] = 0;
-    }
-
-    store->size++;
-    if (!i){break;}
-  }
+  store->size = count;
 }
 
 /*
@@ -830,11 +768,7 @@ static void LZ77OptimalRun(const ZopfliOptions* options, const unsigned char* in
     }
   }
 
-  unsigned* path = 0;
-  size_t pathsize = 0;
-  TraceBackwards(inend - instart, length_array, &path, &pathsize);
-  FollowPath(path, pathsize, store);
-  free(path);
+  TraceBackwards(inend - instart, length_array, store);
 }
 
 /*TODO: Replace this w/ proper implementation. This performs bad on files w/ changing redundancy */

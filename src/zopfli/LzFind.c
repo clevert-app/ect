@@ -266,7 +266,7 @@ static unsigned short * GetMatches2(UInt32 lenLimit, UInt32 curMatch, UInt32 pos
   }
 }
 
-static void SkipMatches(UInt32 lenLimit, UInt32 curMatch, UInt32 pos, const Byte *cur, UInt32 *son,
+static int SkipMatches(UInt32 lenLimit, UInt32 curMatch, UInt32 pos, const Byte *cur, UInt32 *son,
                         UInt32 _cyclicBufferPos)
 {
   UInt32 *ptr0 = son + (_cyclicBufferPos << 1) + 1;
@@ -278,7 +278,7 @@ static void SkipMatches(UInt32 lenLimit, UInt32 curMatch, UInt32 pos, const Byte
     if (delta >= ZOPFLI_WINDOW_SIZE)
     {
       *ptr0 = *ptr1 = 0;
-      return;
+      return 0;
     }
 
     UInt32 *pair = son + (((_cyclicBufferPos + ZOPFLI_WINDOW_SIZE - delta) & 32767) << 1);
@@ -295,7 +295,7 @@ static void SkipMatches(UInt32 lenLimit, UInt32 curMatch, UInt32 pos, const Byte
       {
         *ptr1 = pair[0];
         *ptr0 = pair[1];
-        return;
+        return delta == 1 && lenLimit == ZOPFLI_MAX_MATCH;
       }
     }
     if (pb[len] < cur[len])
@@ -313,15 +313,6 @@ static void SkipMatches(UInt32 lenLimit, UInt32 curMatch, UInt32 pos, const Byte
       len0 = len;
     }
   }
-}
-
-static void SkipMatches2(UInt32 *son, UInt32 _cyclicBufferPos)
-{
-  UInt32 *ptr0 = son + (_cyclicBufferPos << 1) + 1;
-  UInt32 *ptr1 = son + (_cyclicBufferPos << 1);
-  UInt32 *pair = son + (((_cyclicBufferPos + ZOPFLI_WINDOW_SIZE - 1) & 32767) << 1);
-  *ptr1 = pair[0];
-  *ptr0 = pair[1];
 }
 
 #ifdef CRC_INTRINSIC
@@ -383,8 +374,18 @@ void Bt3Zip_MatchFinder_Skip(CMatchFinder* p, UInt32 num)
     UInt32 curMatch = p->hash[hashValue];
     p->hash[hashValue] = p->pos;
     unsigned lenlimit = p->bufend - p->buffer;
-    SkipMatches(lenlimit > ZOPFLI_MAX_MATCH ? ZOPFLI_MAX_MATCH : lenlimit, curMatch, MF_PARAMS(p));
+    int full_run = SkipMatches(lenlimit > ZOPFLI_MAX_MATCH ? ZOPFLI_MAX_MATCH : lenlimit, curMatch, MF_PARAMS(p));
     MOVE_POS;
+    if (full_run && num) {
+      /* Each equal byte beyond the known match proves another full distance-1 match. */
+      const Byte *start = cur + ZOPFLI_MAX_MATCH;
+      const Byte *end = p->bufend - start < num ? p->bufend : start + num;
+      UInt32 extra = GetMatch(start, start - 1, end, end - 8) - start;
+      if (extra) {
+        Bt3Zip_MatchFinder_Skip2(p, extra);
+        num -= extra;
+      }
+    }
   }
 }
 
@@ -393,14 +394,19 @@ void Bt3Zip_MatchFinder_Skip(CMatchFinder* p, UInt32 num)
 // can't be available matches.
 void Bt3Zip_MatchFinder_Skip2(CMatchFinder* p, UInt32 num)
 {
+  if (!num) return;
   const Byte *cur = p->buffer;
   HASH(cur);
-  while (num--)
-  {
-    p->hash[hashValue] = p->pos;
-    SkipMatches2(p->son, p->cyclicBufferPos);
-    MOVE_POS;
-  }
+  p->hash[hashValue] = p->pos + num - 1;
+  /* Every position inherits the same two children from its predecessor. */
+  UInt32 index = p->cyclicBufferPos;
+  uint64_t children;
+  memcpy(&children, p->son + 2 * ((index - 1) & ZOPFLI_WINDOW_MASK), sizeof(children));
+  for (UInt32 i = 0; i < num; i++)
+    memcpy(p->son + 2 * ((index + i) & ZOPFLI_WINDOW_MASK), &children, sizeof(children));
+  p->cyclicBufferPos = (index + num) & ZOPFLI_WINDOW_MASK;
+  p->pos += num;
+  p->buffer += num;
 }
 
 void CopyMF(const CMatchFinder *p, CMatchFinder* copy){

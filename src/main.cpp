@@ -69,7 +69,7 @@ static void show_help(bool is_long_help) {
     "\n"
     "About:\n"
     "  Homepage: https://github.com/clevert-app/ect\n"
-    "  Version: 2.0.1-alpha.6\n"
+    "  Version: 2.0.1-alpha.7\n"
     "  Build date: " __DATE__ " " __TIME__ "\n"
   );
   if (!is_long_help)
