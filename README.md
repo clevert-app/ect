@@ -8,15 +8,15 @@ https://github.com/clevert-app/ect/releases
 
 ## Performance
 
-> Compress enwik8 to gzip. Use x86_64, AMD Ryzen R5 5600U, boost off, fixed 2.3 GHz. Debian 13.
+> Compress enwik8 to gzip. On `x86_64`, AMD Ryzen R5 5600U, boost off, fixed 2.3 GHz. Debian 13.
 
 | name           | size     | time   |
 | -------------- | -------- | ------ |
 | gzip -9        | 36445248 | 9.04   |
 | libdeflate -9  | 36244263 | 4.29   |
 | libdeflate -12 | 35103255 | 20.72  |
-| ect -3         | 35014536 | 19.52  |
-| ect -6         | 34943936 | 48.39  |
+| ect -3         | 35014536 | 18.27  |
+| ect -6         | 34943936 | 41.40  |
 | ect_fhanau -3  | 35014543 | 21.63  |
 | ect_fhanau -6  | 34943943 | 55.56  |
 | zopfli -i1     | 35102371 | 107.14 |

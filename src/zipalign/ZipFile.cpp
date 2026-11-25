@@ -735,7 +735,7 @@ status_t ZipFile::addRecompress(const ZipFile* pSourceZip, const ZipEntry* pSour
                 mt->pending_workers_count++;
                 std::thread([idx, in_buf, in_size, mt = mt]() {
                     ZopfliOptions options;
-                    ZopfliInitOptions(&options, zipalign_get_zopfli_level(), 0, 0);
+                    ZopfliInitOptions(&options, zipalign_get_zopfli_level(), 1, 0);
                     unsigned char bp = 0, *out = nullptr;
                     size_t out_size = 0;
                     ZopfliDeflate(&options, true, in_buf, in_size, &bp, &out, &out_size);

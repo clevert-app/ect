@@ -63,7 +63,7 @@ if [ "$1" = build ]; then
   # fi
   # cd $temp_dir/build
   # export CC="gcc" CXX="g++" CFLAGS="-O3 -flto=auto" LDFLAGS="-Wl,--gc-sections" # gcc
-  export CC="clang" CXX="clang++" CFLAGS="-O3 -flto=thin" LDFLAGS="-fuse-ld=lld -Wl,--icf=safe"
+  export CC="clang" CXX="clang++" CFLAGS="-O3 -flto=thin -g" LDFLAGS="-fuse-ld=lld -Wl,--icf=safe"
   if [ "$(uname) $(uname -m)" = "Linux x86_64" ]; then
     # apt-get install ccache ninja-build nasm
     # curl -O -L https://apt.llvm.org/llvm.sh # supports debian 13 and more
@@ -161,51 +161,33 @@ fi
 
 if [ "$1" = bench ]; then
   # === to run benchmark
-  res=build/misc/res ; res_bak=build/misc/res_bak ; mkdir -p $res_bak
-  if [ "$2" = png ]; then
-    for name in build/misc/ect_*; do
-      printf "==========\n[ $name ]\n"
-      rm -rf $res
-      cp -a $res_bak $res
-      launch() { time -p $name "$@" ; }
-      if command -v taskset >/dev/null 2>&1; then
-        launch() { time -p taskset -c 2 $name "$@" ; }
-      fi
-      launch() { hyperfine --shell /bin/bash --style basic --metrics time_wall_clock:s -w 1 -r 3 "$name $*" ; }
-      launch -6 $res/007.png
-      # launch -6 $res/001.png
-      # launch -3 $res/001.png
-      # launch -6 $res/005.tgz
-      # launch -8 $res/013.png
-      # launch -2 $res/012.png
-      # cp ~/Screenshots/ect_extra_test/* $res/
-      # launch -6 $res/s*.png
-    done
-    exit
-  fi
-  if [ "$2" = apk ]; then
-    i_apk=~/misc/res/pkgs/android/tasker/tasker.6.2.22.apk
-    i_apk=~/misc/res/pkgs/android/wps/wps.16.8.6.v2.apk
-    i_apk=$res_bak/004.apk
-    check_y() {
-      du -s $res/y.apk
-      rm -rf $res/y
-      unzip -q -o -d $res/y $res/y.apk
-      find $res/y -type f -exec sha1sum {} + | sort -k 2 | sha1sum
-    }
-    cp $i_apk $res/y.apk
-    check_y
-    export ZIPALIGN_THREADS_COUNT=3 ZIPALIGN_ZOPFLI_LEVEL=6
-    for name in build/misc/ect_*; do
-      printf "==========\n[ $name ]\n"
-      mkdir -p $res
-      time -p $name --as zipalign -z -f -P 4 4 $i_apk $res/y.apk
-      check_y
-    done
-    rm -rf $res/y
-    exit
-  fi
-  exit 1
+  res=build/misc/res ; res_bak=build/misc/res_bak ; rm -rf $res ; cp -a $res_bak $res
+  [ "$2" = "" ] && exit 1
+  name="$2"
+  launch() { time -p $name "$@" ; }
+  command -v taskset && launch() { time -p taskset -c 2 $name "$@" ; }
+  launch -2 $res/001.png # warmup
+  launch() { hyperfine --shell /bin/bash --style basic --metrics time_wall_clock:s -r 2 "$name $*" ; }
+  launch() { hyperfine -r 5 "$name $*" ; }
+  # > png and enwik8 zip
+  launch -3 $res/006.zip
+  launch -6 $res/006.zip
+  launch -6 $res/007.png
+  launch -6 $res/001.png
+  launch -3 $res/001.png
+  launch -6 $res/005.tgz
+  launch -2 $res/012.png
+  launch -8 $res/013.png
+  # > apk
+  check_zip() { du -sk $1 ; unzip -tq $1 ; unzip -p $1 | sha1sum ; }
+  i_apk=~/misc/res/pkgs/android/tasker/tasker.6.2.22.apk
+  i_apk=~/misc/res/pkgs/android/wps/wps.16.8.6.v2.apk
+  i_apk=$res_bak/004.apk
+  check_zip $i_apk
+  export ZIPALIGN_THREADS_COUNT=3 ZIPALIGN_ZOPFLI_LEVEL=6
+  launch --as zipalign -z -f -P 4 4 $i_apk $res/y.apk
+  check_zip $res/y.apk
+  exit
 fi
 
 exit 1
