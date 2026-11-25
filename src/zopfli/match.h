@@ -149,6 +149,7 @@ static inline const unsigned char *GetMatch_opti_v1(const unsigned char *__restr
   return scan;
 }
 
+#if defined(__SSE4_2__) && defined(__x86_64__)
 ZOPFLI_FORCE_INLINE
 static inline const unsigned char *GetMatch_pcmpestri(const unsigned char *__restrict scan,
                                                       const unsigned char *__restrict match,
@@ -171,6 +172,7 @@ static inline const unsigned char *GetMatch_pcmpestri(const unsigned char *__res
   }
   return scan;
 }
+#endif
 
 #if defined(__ARM_NEON) && 0
 ZOPFLI_FORCE_INLINE

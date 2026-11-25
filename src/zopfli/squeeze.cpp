@@ -852,7 +852,6 @@ static void ZopfliLZ77Optimal(const ZopfliOptions* options,
   double lastcost = 0;
   /* Try randomizing the costs a bit once the size stabilizes. */
   RanState ran_state;
-  int lastrandomstep = -1;
 
   InitRanState(&ran_state);
   ZopfliInitLZ77Store(&currentstore);
@@ -950,36 +949,31 @@ static void ZopfliLZ77Optimal(const ZopfliOptions* options,
     LZ77OptimalRun(options, in, instart, inend, length_array, &stats, &currentstore, options->useCache ? i == 1 ? 1 : 2 : 0, &c, mfinexport, 0);
 
     unsigned gui = 0;
-    cost = ZopfliCalculateBlockSize(currentstore.litlens, currentstore.dists, 0, currentstore.size, 2, options->searchext, currentstore.symbols);
+    // Score the parse and seed the next iteration from the same histogram.
+    CopyStats(&stats, &laststats);
+    ZopfliLZ77Counts(currentstore.litlens, currentstore.dists, 0, currentstore.size,
+                    stats.litlens, stats.dists, currentstore.symbols);
+    cost = DynamicBlockSizeFromCounts(stats.litlens, stats.dists, options->searchext);
     if (cost < bestcost) {
       /* Copy to the output store. */
       ZopfliCopyLZ77Store(&currentstore, store);
-      CopyStats(&stats, &beststats);
+      CopyStats(&laststats, &beststats);
       bestcost = cost;
     }
     else{
       gui = 1;
     }
-    CopyStats(&stats, &laststats);
-    GetStatistics(&currentstore, &stats);
-
     if (i == 4 && options->reuse_costmodel){
       CopyStats(&beststats, &st);
       stinit = 1;
     }
-    if (lastrandomstep) {
-      /* This makes it converge slower but better. Do it only once the
-      randomness kicks in so that if the user does few iterations, it gives a
-      better result sooner. */
-      AddWeightedStatFreqs(&stats, 1.0, &laststats, .5, &stats);
-      CalculateStatistics(&stats);
-    }
     if (i > 6 && cost == lastcost) {
       CopyStats(&beststats, &stats);
       RandomizeStatFreqs(&ran_state, &stats);
-      CalculateStatistics(&stats);
-      lastrandomstep = i;
+    } else {
+      AddWeightedStatFreqs(&stats, 1.0, &laststats, .5, &stats);
     }
+    CalculateStatistics(&stats);
     lastcost = cost;
     if(gui && options->numiterations < 6){break;}
   }
@@ -990,7 +984,7 @@ static void ZopfliLZ77Optimal(const ZopfliOptions* options,
 
     for (;;){
       SymbolStats sta;
-      GetStatistics(store, &sta);
+      ZopfliLZ77Counts(store->litlens, store->dists, 0, store->size, sta.litlens, sta.dists, store->symbols);
 
       OptimizeHuffmanCountsForRle(32, sta.dists);
       OptimizeHuffmanCountsForRle(288, sta.litlens);
@@ -1027,7 +1021,7 @@ static void ZopfliLZ77Optimal(const ZopfliOptions* options,
             ZopfliInitLZ77Store(&peace);
 
 
-            GetStatistics(store, &sta);
+            ZopfliLZ77Counts(store->litlens, store->dists, 0, store->size, sta.litlens, sta.dists, store->symbols);
 
             OptimizeHuffmanCountsForRle(32, sta.dists);
             OptimizeHuffmanCountsForRle(288, sta.litlens);

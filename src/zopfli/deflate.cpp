@@ -855,6 +855,12 @@ size_t GetDynamicLengths2(unsigned* ll_lengths, unsigned* d_lengths, const size_
   return result;
 }
 
+size_t DynamicBlockSizeFromCounts(const size_t* ll_counts, const size_t* d_counts, unsigned char hq) {
+  unsigned ll_lengths[288], d_lengths[32], best;
+  size_t bits = GetDynamicLengthsuse(ll_lengths, d_lengths, ll_counts, d_counts);
+  return 3 + bits + CalculateTreeSize(ll_lengths, d_lengths, hq, &best);
+}
+
 double ZopfliCalculateBlockSize(const unsigned short* litlens,
                                 const unsigned short* dists,
                                 size_t lstart, size_t lend, int btype, unsigned char hq, unsigned char symbols) {
@@ -876,14 +882,9 @@ double ZopfliCalculateBlockSize(const unsigned short* litlens,
     }
     return result;
   }
-  unsigned ll_lengths[288];
-  unsigned d_lengths[32];
-  unsigned dummy;
-  //TODO: Better for PNG, worse for enwik
-  //result += GetAdvancedLengths(litlens, dists, lstart, lend, ll_lengths, d_lengths, symbols);
-  result += GetDynamicLengths(litlens, dists, lstart, lend, ll_lengths, d_lengths, symbols);
-  result += CalculateTreeSize(ll_lengths, d_lengths, hq, &dummy);
-  return result;
+  size_t ll_counts[288], d_counts[32];
+  ZopfliLZ77Counts(litlens, dists, lstart, lend, ll_counts, d_counts, symbols);
+  return DynamicBlockSizeFromCounts(ll_counts, d_counts, hq);
 }
 
 static unsigned char ReplaceBadCodes(unsigned short** litlens,
