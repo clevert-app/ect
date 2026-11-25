@@ -31,6 +31,15 @@ Author: jyrki.alakuijala@gmail.com (Jyrki Alakuijala)
 #include <stdlib.h>
 #include <limits.h>
 #include <math.h>
+#include <stdint.h>
+#include <string.h>
+
+// Needs:
+// 1. 32-bit unaligned read/write
+// 2. Little endian
+#if (defined(__x86_64__) || defined(__aarch64__)) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define FAST_BITWRITER
+#endif
 
 #ifndef NOMULTI
 #include <functional>
@@ -55,14 +64,11 @@ static void AddBit(int bit,
 
 static void AddBits(unsigned symbol, unsigned length,
                     unsigned char* bp, unsigned char* out, size_t* outsize) {
-//Needs:
-  //1. 32-bit arch
-  //2. 32-bit unaligned read/write
-  //3. Little endian architecture
-//As this code is not that much faster it should be ok to only enable it on x86 with MSVC, GCC and clang
-#if defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
+#ifdef FAST_BITWRITER
   //Length must be nonzero.
-    *(unsigned*)(&(out[*outsize - (!!(*bp))])) |= (symbol << (*bp));
+    unsigned char* destination = out + *outsize - (!!(*bp));
+    uint32_t word = u32read(destination) | (symbol << *bp);
+    memcpy(destination, &word, sizeof(word));
     (*outsize) += ((*bp) + length - 1) / 8 + (!(*bp));
     *bp = (((*bp) + length) & 7);
 }
@@ -71,9 +77,10 @@ static void AddBits(unsigned symbol, unsigned length,
 static void AddBits2(unsigned symbol, unsigned length,
                      unsigned char* out, size_t* bits) {
   //Length may be zero.
-  unsigned pos = (*bits) >> 3;
+  size_t pos = (*bits) >> 3;
   unsigned char bitties = ((*bits) & 7);
-  *(unsigned*)(&(out[pos])) |= (symbol << bitties);
+  uint32_t word = u32read(out + pos) | (symbol << bitties);
+  memcpy(out + pos, &word, sizeof(word));
   (*bits) += length;
 
 #else
@@ -371,7 +378,7 @@ static void AddLZ77Data(const unsigned short* litlens,
                         unsigned char* out, size_t* outsize) {
   size_t i;
   //Revert some codes so we can choose the fast AddBits() function
-#if defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
+#ifdef FAST_BITWRITER
   size_t testlength = 0;
 
   for (i = 0; i < 30; i++){
@@ -407,7 +414,6 @@ static void AddLZ77Data(const unsigned short* litlens,
   size_t bits = (*outsize) * 8 + *bp - ((*bp) != 0) * 8;
 
 #define setbits AddBits
-#define FAST_BITWRITER
 #else
 #define setbits AddHuffmanBits
 #endif

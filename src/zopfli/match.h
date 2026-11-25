@@ -136,8 +136,6 @@ static inline const unsigned char *GetMatch_opti_v1(const unsigned char *__restr
       return scan;
     }
   }
-  // for (; scan + 4 <= end; scan += 4, match += 4) {
-  // for (; end - scan >= 4; scan += 4, match += 4) {
   for (; scan <= end - 4; scan += 4, match += 4) {
     uint32_t xor_v = u32read(scan) ^ u32read(match);
     if (xor_v) {
@@ -150,6 +148,58 @@ static inline const unsigned char *GetMatch_opti_v1(const unsigned char *__restr
   }
   return scan;
 }
+
+ZOPFLI_FORCE_INLINE
+static inline const unsigned char *GetMatch_pcmpestri(const unsigned char *__restrict scan,
+                                                      const unsigned char *__restrict match,
+                                                      const unsigned char *__restrict end,
+                                                      const unsigned char *safe_end) {
+  enum { MODE = _SIDD_UBYTE_OPS | _SIDD_CMP_EQUAL_EACH | _SIDD_NEGATIVE_POLARITY | _SIDD_LEAST_SIGNIFICANT };
+  while (end - scan >= 16) {
+    __m128i v_scan  = _mm_loadu_si128((const __m128i *)scan);
+    __m128i v_match = _mm_loadu_si128((const __m128i *)match);
+    int idx = _mm_cmpestri(v_scan, 16, v_match, 16, MODE);
+    scan += idx;
+    if (idx < 16) {
+      return scan;
+    }
+    match += 16;
+  }
+  while (scan < end && *scan == *match) {
+    scan++;
+    match++;
+  }
+  return scan;
+}
+
+#if defined(__ARM_NEON) && 0
+ZOPFLI_FORCE_INLINE
+static inline const unsigned char *GetMatch_neon(const unsigned char *__restrict scan,
+                                                 const unsigned char *__restrict match,
+                                                 const unsigned char *__restrict end,
+                                                 const unsigned char *safe_end) {
+  while (end - scan >= 16) {
+    uint8x16_t v_scan  = vld1q_u8(scan);
+    uint8x16_t v_match = vld1q_u8(match);
+    uint8x16_t v_eq    = vceqq_u8(v_scan, v_match);
+
+    uint8x8_t v_narrow = vshrn_n_u16(vreinterpretq_u16_u8(v_eq), 4);
+    uint64_t mask = ~vget_lane_u64(vreinterpret_u64_u8(v_narrow), 0);
+
+    if (mask) {
+      return scan + (__builtin_ctzll(mask) >> 2);
+    }
+    scan += 16;
+    match += 16;
+  }
+
+  while (scan < end && *scan == *match) {
+    scan++;
+    match++;
+  }
+  return scan;
+}
+#endif
 
 ZOPFLI_FORCE_INLINE
 static inline const unsigned char *GetMatch_legacy(const unsigned char *__restrict scan,

@@ -5,8 +5,8 @@
 *.bak
 *.tmp.cmake
 temp
-temp.*.md
-note.*.md
+temp.*
+note.*
 **/build
 **/third_party
 src/.cache/clangd

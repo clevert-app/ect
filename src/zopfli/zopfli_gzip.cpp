@@ -219,7 +219,7 @@ int ZopfliGzipStream(unsigned mode, FILE *fd_in, FILE *fd_out) {
   if (mode % 10000 < 2)
     mode += 2 - mode % 10000;
   ZopfliOptions options;
-  ZopfliInitOptions(&options, mode, 0, 0);
+  ZopfliInitOptions(&options, mode, 1, 0);
   size_t blocksize = ZOPFLI_MASTER_BLOCK_SIZE;
   if (options.numiterations == 1) blocksize /= 5;
   std::vector<unsigned char> in(ZOPFLI_WINDOW_SIZE + blocksize + 1 + 16);
