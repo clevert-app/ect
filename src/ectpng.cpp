@@ -320,7 +320,11 @@ struct Image {
   unsigned width, height, depth;
 };
 
+// An ICC profile describes either gray or color samples, and the color type must match it
+enum class Profile { none, gray, color };
+
 struct Color {
+  bool colored = false; // not all pixels gray, or a color profile
   unsigned type = 0, depth = 1;
   unsigned count = 0;
   uint8_t palette[256][4] = {};
@@ -449,10 +453,10 @@ static unsigned required_bits(unsigned value) {
   return 8;
 }
 
-static Color choose_color(const Image &image, unsigned mode) {
+static Color choose_color(const Image &image, unsigned mode, Profile profile) {
   size_t count = size_t(image.width) * image.height;
   Color color;
-  bool colored = false, alpha = false;
+  bool colored = profile == Profile::color, alpha = false;
   unsigned bits = image.depth == 16 ? 16 : 1;
   unsigned opaque = image.depth == 16 ? 65535 : 255;
   unsigned stride = image.depth / 2;
@@ -537,7 +541,10 @@ static Color choose_color(const Image &image, unsigned mode) {
     palette = false;
   if (!colored && !alpha && bits <= palette_bits && !white)
     palette = false;
+  if (profile == Profile::gray)
+    palette = false;
 
+  color.colored = colored;
   color.depth = bits;
   if (palette) {
     color.type = PNG_COLOR_TYPE_PALETTE;
@@ -896,14 +903,12 @@ static bool should_try_without_palette(const Image &image, const Color &color, s
 
 static Color without_palette(const Color &color) {
   Color result;
-  bool gray = true, alpha = false;
-  for (unsigned i = 0; i < color.count; i++) {
-    const uint8_t *pixel = color.palette[i];
-    gray &= pixel[0] == pixel[1] && pixel[0] == pixel[2];
-    alpha |= pixel[3] != 255;
-  }
+  result.colored = color.colored;
+  bool alpha = false;
+  for (unsigned i = 0; i < color.count; i++)
+    alpha |= color.palette[i][3] != 255;
   result.depth = 8;
-  if (gray)
+  if (!color.colored)
     result.type = alpha ? PNG_COLOR_TYPE_GRAY_ALPHA : PNG_COLOR_TYPE_GRAY;
   else
     result.type = alpha ? PNG_COLOR_TYPE_RGBA : PNG_COLOR_TYPE_RGB;
@@ -991,10 +996,14 @@ int ect_png(const uint8_t *in_buf, size_t in_size, uint8_t **out_buf, size_t *ou
   if (in_size < 33 || png_sig_cmp(in_buf, 0, 8))
     return 1;
   bool is_adam7 = in_buf[28] == PNG_INTERLACE_ADAM7;
+  Profile profile = Profile::none;
   for (const uint8_t *chunk = in_buf + 8, *end = in_buf + in_size; chunk < end;) {
     size_t size = chunk_size(chunk, end);
     if (chunk_is(chunk, "acTL"))
       return 1; // is animated
+    // The input's color type tells which kind of profile it is
+    if (chunk_is(chunk, "iCCP") && !strip)
+      profile = in_buf[25] & PNG_COLOR_MASK_COLOR ? Profile::color : Profile::gray;
     chunk += size;
   }
   ZopfliOptions options;
@@ -1014,7 +1023,7 @@ int ect_png(const uint8_t *in_buf, size_t in_size, uint8_t **out_buf, size_t *ou
     free(filtered);
   } else {
     reduce_depth(&image);
-    color = choose_color(image, mode);
+    color = choose_color(image, mode, profile);
     if (strategy == 77) {
       // Compare 0 and 10; if 10 is better, choose 12, otherwise choose 0.
       Color c_0 = color;
