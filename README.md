@@ -6,7 +6,7 @@ The `ect` is a optimizer for GZIP, ZIP, PNG and more formats. This is a friendly
 
 Download from [releases](https://github.com/clevert-app/ect/releases).
 
-See `./ect --help`. For example, to optimize a `xlsx` file (MS Office file is a valid ZIP), run `ect -o output.xlsx input.xlsx`.
+See `./ect --help`. For example, to optimize a `xlsx` file (ms-office files are valid zip), run `ect -o output.xlsx input.xlsx`.
 
 ## Performance
 

@@ -17,7 +17,7 @@ endif()
 
 option(ECT_MULTITHREADING "Enable multithreaded processing support" ON)
 option(ECT_LIBWEBP_SUPPORT "The libwebp support" OFF)
-option(ECT_LIBJXL_SUPPORT "The libjxl (and jpegli) support" OFF)
+option(ECT_LIBJXL_SUPPORT "The libjxl (and jpegli) support" ON)
 
 add_executable(ect
   main.cpp
@@ -150,9 +150,13 @@ if(ECT_LIBJXL_SUPPORT)
     third_party/libjxl/tools/jxlinfo.cc
     third_party/libjxl/tools/cjxl_main.cc
     third_party/libjxl/tools/djxl_main.cc
+    third_party/libjxl/tools/cjpegli.cc
+    third_party/libjxl/tools/djpegli.cc
   )
-  target_link_libraries(ect_libjxl_tools PRIVATE jxl jxl_extras_codec jxl_threads jxl_tool)
-  target_link_libraries(ect ect_libjxl_tools)
+  target_link_libraries(ect_libjxl_tools PRIVATE jpegli-static jxl_extras-internal jxl_threads jxl_tool)
+  target_include_directories(jpegli-static PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_sources(ect PRIVATE ectjpeg.cpp)
+  target_link_libraries(ect ect_libjxl_tools JPEG::JPEG)
   target_compile_definitions(ect PRIVATE ECT_LIBJXL_SUPPORT=1)
 endif()
 

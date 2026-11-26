@@ -1,3 +1,4 @@
+#include "ectjpeg.h"
 #include "ectpng.h"
 #include "gztools.h"
 #include "support.h"
@@ -77,6 +78,7 @@ static void show_help(bool is_long_help) {
   printf(
     "Details:\n"
     "  Compression level:\n"
+    "    JPEG optimizes the original DCT coefficients. Level 3 and above search progressive scans.\n"
     "  PNG filter:\n"
     "    The PNG format allows different filters for each scanline.\n"
     "    In --png-filter N option, 0-4 use fixed filter N for whole image.\n"
@@ -228,6 +230,29 @@ static int file_handler(const std::string &input_file) {
     ret = gzip_handler(input_file, input_size, outname);
   } else if (e == "png") {
     ret = png_handler(input_file, input_size, outname);
+#ifdef ECT_LIBJXL_SUPPORT
+  } else if (e == "jpg" || e == "jpeg") {
+    uint8_t *buf;
+    size_t size;
+    assert_with_msg(read_file(input_file.c_str(), &buf, &size) == 0, "read file failed");
+    std::unique_ptr<uint8_t, decltype(&free)> input(buf, free);
+    std::vector<uint8_t> best;
+    ret = ect_jpeg(buf, size, opt.mode, opt.strip, best);
+    if (ret == 0 && best.empty()) {
+      if (!opt.quiet)
+        printf("> Keep original JPEG %s\n", input_file.c_str());
+      return 0;
+    }
+    if (ret == 0) {
+      FILE *out = fopen(outname, "wbx");
+      assert_with_msg(out, "cannot create output %s", outname);
+      size_t written = fwrite(best.data(), 1, best.size(), out);
+      if (fclose(out) != 0 || written != best.size()) {
+        unlink(outname);
+        return 1;
+      }
+    }
+#endif
   } else {
     printf("unsupported file extension %s", e.c_str());
     return 0;
@@ -267,6 +292,8 @@ extern "C" int cmd_webpmux_main(int argc, const char *argv[]);
 extern "C" int cmd_jxlinfo_main(int argc, char *argv[]);
 extern "C" int cmd_cjxl_main(int argc, char **argv);
 extern "C" int cmd_djxl_main(int argc, const char *argv[]);
+extern "C" int cmd_cjpegli_main(int argc, const char *argv[]);
+extern "C" int cmd_djpegli_main(int argc, const char *argv[]);
 
 static void multi_call(int argc, char *argv[]) {
   // supported usages:
@@ -317,6 +344,10 @@ static void multi_call(int argc, char *argv[]) {
     exit(cmd_cjxl_main(argc, argv));
   if (strcmp(applet, "djxl") == 0)
     exit(cmd_djxl_main(argc, (const char **)argv));
+  if (strcmp(applet, "cjpegli") == 0)
+    exit(cmd_cjpegli_main(argc, (const char **)argv));
+  if (strcmp(applet, "djpegli") == 0)
+    exit(cmd_djpegli_main(argc, (const char **)argv));
 #endif
 }
 

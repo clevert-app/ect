@@ -25,32 +25,69 @@ if [ "$1" = fetch ]; then
   # > libwebp
   rm -rf third_party/libwebp
   mkdir -p third_party/libwebp
-  t=third_party/fetch.libwebp_commit_1844042d1ca751e62e61df7617dba19c98588339.tar.gz
-  [ -e $t ] || curl -o $t -L https://github.com/webmproject/libwebp/archive/1844042d1ca751e62e61df7617dba19c98588339.tar.gz
+  t=third_party/fetch.libwebp_commit_d05ff79d16f4b58d49a3c5f18011baa72e128012.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/webmproject/libwebp/archive/d05ff79d16f4b58d49a3c5f18011baa72e128012.tar.gz
   tar -xf $t --strip-components 1 -C third_party/libwebp
   for applet in webpinfo cwebp dwebp gif2webp img2webp webpmux; do
     sed -i.bak "s/int main(/int cmd_${applet}_main(/" third_party/libwebp/examples/$applet.c
   done
-  # > libjxl
+  sed -i '/^    find_package(${I_LIB})$/c\    if(I_LIB STREQUAL "JPEG" AND ECT_LIBJXL_SUPPORT)\n      set(JPEG_FOUND TRUE)\n    else()\n      find_package(${I_LIB})\n    endif()' third_party/libwebp/cmake/deps.cmake
+  # > libjxl + jpegli
   rm -rf third_party/libjxl
   mkdir -p third_party/libjxl
-  t=third_party/fetch.libjxl_commit_e2948747fee8e99a614066eb058e67a0b8de995f.tar.gz
-  [ -e $t ] || curl -o $t -L https://github.com/libjxl/libjxl/archive/e2948747fee8e99a614066eb058e67a0b8de995f.tar.gz
+  t=third_party/fetch.libjxl_commit_12e4bf4087bcfc2a936596cade001f6a1f30b9ef.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/libjxl/libjxl/archive/12e4bf4087bcfc2a936596cade001f6a1f30b9ef.tar.gz
   tar -xf $t --strip-components 1 -C third_party/libjxl --exclude "*/tools/benchmark/metrics/*.sh"
   sed -i.bak -E \
     -e "s|local down_dir=|local down_dir=$PWD/third_party #|g" \
     -e 's|local local_fn=|local local_fn=$down_dir/fetch.$(basename $path)_commit_$sha.tar.gz ; if [ -e $local_fn ]; then t=$MYDIR/$path ; mkdir -p $t ; tar -zxf $local_fn -C $t --strip-components 1 ; return 0 ; fi #|g' \
     -e 's|if is_git_repository |if false |g' \
-    -e '/download_github +(testdata|third_party\/(googletest|zlib|libpng|libjpeg-turbo)) /d' \
+    -e '/download_github +(testdata|third_party\/(googletest|zlib|libpng)) /d' \
     third_party/libjxl/deps.sh
   (cd third_party/libjxl ; ./deps.sh ; rm -rf third_party/skcms/profiles/*)
-  t=third_party/fetch.jpegli_commit_031a0077f5799a6041004267fc12b956c1f52a20.tar.gz
-  [ -e $t ] || curl -o $t -L https://github.com/google/jpegli/archive/031a0077f5799a6041004267fc12b956c1f52a20.tar.gz
-  # tar -xf $t --strip-components 1 -C third_party/libjxl --skip-old-files
-  for applet in jxlinfo cjxl djxl; do
-    file=third_party/libjxl/tools/$applet.cc
-    [ -e $file ] || file=third_party/libjxl/tools/${applet}_main.cc
-    sed -i.bak "s/int main(/extern \"C\" int cmd_${applet}_main(/" $file
+  t=third_party/fetch.jpegli_commit_c7d342c25d3587ac0110c915989ad94f414b6c8d.tar.gz
+  [ -e $t ] || curl -o $t -L https://github.com/google/jpegli/archive/c7d342c25d3587ac0110c915989ad94f414b6c8d.tar.gz
+  tar -xf $t --strip-components 1 -C third_party/libjxl --skip-old-files
+  jxl=third_party/libjxl
+  sed -i -E \
+    -e 's@lib/(base|cms|extras)/(types|cms|color_encoding|codestream_header)\.h@jxl/\2.h@g' \
+    -e 's|lib/base/include_jpeglib.h|lib/extras/include_jpeglib.h|g' \
+    -e 's|lib/base/|lib/jxl/base/|g' \
+    -e 's@lib/(cms|extras)/(color_encoding_internal|simd_util)\.h@lib/jxl/\2.h@g' \
+    -e 's|lib/extras/xyb_transform.h|lib/jxl/enc_xyb.h|g' \
+    -e 's/Jpegli/Jxl/g; s/JPEGLI_/JXL_/g; s/JXL_(ERROR|WARN|TRACE|CHECK)\b/JPEGLI_\1/g' \
+    $jxl/lib/jpegli/* $jxl/lib/extras/dec/jpegli.* $jxl/lib/extras/enc/jpegli.* $jxl/tools/cjpegli.cc $jxl/tools/djpegli.cc
+  sed -i 's/} JxlDataType;/& int jpegli_bytes_per_sample(JxlDataType data_type);/' $jxl/lib/include/jxl/types.h
+  ln -sf ../include/jxl/types.h $jxl/lib/jpegli/types.h
+  sed -i 's|#include "lib/extras/include_jpeglib.h"|& \n #include "lib/jxl/base/common.h" \n namespace jpegli { using namespace jxl; }|' $jxl/lib/jpegli/common.h
+  sed -i \
+    -e 's/namespace jpegli {/namespace jxl {/' \
+    -e 's/jpegli::/jxl::/g' \
+    -e 's/namespace jpegli_tools {/& using namespace jpegxl::tools;/' \
+    $jxl/lib/extras/dec/jpegli.* $jxl/lib/extras/enc/jpegli.* $jxl/tools/cjpegli.cc $jxl/tools/djpegli.cc
+  sed -i '/^find_package(JPEG)$/c\set(JPEG_FOUND TRUE)\nset(JPEG_LIBRARIES JPEG::JPEG)\nset(JPEG_INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}/include/jpegli")' $jxl/lib/jxl_extras.cmake
+  echo '
+    include(jpegli_lists.cmake)
+    add_library(jpegli-static STATIC ${JPEGLI_INTERNAL_JPEGLI_SOURCES} ${JPEGLI_INTERNAL_JPEGLI_WRAPPER_SOURCES})
+    add_library(JPEG::JPEG ALIAS jpegli-static)
+    target_compile_options(jpegli-static PRIVATE ${JPEGXL_INTERNAL_FLAGS})
+    target_link_libraries(jpegli-static PUBLIC jxl_base hwy Threads::Threads)
+    set(JPEG_LIB_VERSION 62)
+    set(BITS_IN_JSAMPLE 8)
+    set(MEM_SRCDST_SUPPORTED 1)
+    configure_file(../third_party/libjpeg-turbo/jconfig.h.in include/jpegli/jconfig.h)
+    foreach(header jpeglib.h jmorecfg.h jerror.h)
+      configure_file(../third_party/libjpeg-turbo/${header} include/jpegli/${header} COPYONLY)
+    endforeach()
+    target_include_directories(jpegli-static PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include/jpegli)
+    target_sources(jxl_extras-internal PRIVATE extras/dec/jpegli.cc extras/enc/jpegli.cc)
+    target_link_libraries(jxl_extras-internal PRIVATE jpegli-static)
+  ' >> $jxl/lib/CMakeLists.txt
+  echo '#include "ectjpeg_cost.inc"' >> $jxl/lib/jpegli/entropy_coding.cc
+  for applet in jxlinfo cjxl djxl cjpegli djpegli; do
+    file=$jxl/tools/$applet.cc
+    [ -e $file ] || file=$jxl/tools/${applet}_main.cc
+    sed -i "s/int main(/extern \"C\" int cmd_${applet}_main(/" $file
   done
   # > finished
   exit
@@ -104,7 +141,7 @@ if [ "$1" = build ]; then
   find build/ -mindepth 1 -maxdepth 1 ! -name misc -exec rm -rf {} + || true
   cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
   cmake --build build
-  # llvm-objcopy --strip-all build/ect$([ -e build/ect.exe ] && echo ".exe")
+  llvm-objcopy --strip-all build/ect$([ -e build/ect.exe ] && echo ".exe")
   exit
 fi
 
