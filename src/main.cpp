@@ -230,8 +230,8 @@ static int file_handler(const std::string &input_file) {
     ret = gzip_handler(input_file, input_size, outname);
   } else if (e == "png") {
     ret = png_handler(input_file, input_size, outname);
-#ifdef ECT_LIBJXL_SUPPORT
   } else if (e == "jpg" || e == "jpeg") {
+#if defined(ECT_LIBJXL_SUPPORT)
     uint8_t *buf;
     size_t size;
     assert_with_msg(read_file(input_file.c_str(), &buf, &size) == 0, "read file failed");

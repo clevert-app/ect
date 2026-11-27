@@ -45,27 +45,33 @@ if [ "$1" = fetch ]; then
     -e '/download_github +(testdata|third_party\/(googletest|zlib|libpng)) /d' \
     third_party/libjxl/deps.sh
   (cd third_party/libjxl ; ./deps.sh ; rm -rf third_party/skcms/profiles/*)
+  # > jpegli inside libjxl
+  rm -rf third_party/jpegli
+  mkdir -p third_party/jpegli
   t=third_party/fetch.jpegli_commit_c7d342c25d3587ac0110c915989ad94f414b6c8d.tar.gz
   [ -e $t ] || curl -o $t -L https://github.com/google/jpegli/archive/c7d342c25d3587ac0110c915989ad94f414b6c8d.tar.gz
-  tar -xf $t --strip-components 1 -C third_party/libjxl --skip-old-files
-  jxl=third_party/libjxl
+  tar -xf $t --strip-components 1 -C third_party/jpegli --exclude "*/doc" --exclude "*/*.md" --exclude "*/.*"
+  jxl_dir=third_party/libjxl
+  jpegli_dir=third_party/jpegli
+  cp -a $jpegli_dir/lib/jpegli $jpegli_dir/lib/jpegli_lists.cmake $jxl_dir/lib/
+  cp -a $jpegli_dir/tools/[cd]jpegli.cc $jxl_dir/tools/
+  cp -a $jpegli_dir/lib/extras/enc/jpegli.* $jxl_dir/lib/extras/enc/
+  cp -a $jpegli_dir/lib/extras/dec/jpegli.* $jxl_dir/lib/extras/dec/
   sed -i -E \
-    -e 's@lib/(base|cms|extras)/(types|cms|color_encoding|codestream_header)\.h@jxl/\2.h@g' \
-    -e 's|lib/base/include_jpeglib.h|lib/extras/include_jpeglib.h|g' \
-    -e 's|lib/base/|lib/jxl/base/|g' \
-    -e 's@lib/(cms|extras)/(color_encoding_internal|simd_util)\.h@lib/jxl/\2.h@g' \
-    -e 's|lib/extras/xyb_transform.h|lib/jxl/enc_xyb.h|g' \
+    -e 's@lib/([^/]*)/(cms|color_encoding|codestream_header|types)\.h@jxl/\2.h@g' \
+    -e 's@lib/([^/]*)/(color_encoding_internal|simd_util)\.h@lib/jxl/\2.h@g' \
+    -e 's@"lib/base/include_jpeglib\.h"@"lib/extras/include_jpeglib.h"@' \
+    -e 's@"lib/base/@"lib/jxl/base/@; s@"lib/extras/xyb_transform\.h"@"lib/jxl/enc_xyb.h"@' \
     -e 's/Jpegli/Jxl/g; s/JPEGLI_/JXL_/g; s/JXL_(ERROR|WARN|TRACE|CHECK)\b/JPEGLI_\1/g' \
-    $jxl/lib/jpegli/* $jxl/lib/extras/dec/jpegli.* $jxl/lib/extras/enc/jpegli.* $jxl/tools/cjpegli.cc $jxl/tools/djpegli.cc
-  sed -i 's/} JxlDataType;/& int jpegli_bytes_per_sample(JxlDataType data_type);/' $jxl/lib/include/jxl/types.h
-  ln -sf ../include/jxl/types.h $jxl/lib/jpegli/types.h
-  sed -i 's|#include "lib/extras/include_jpeglib.h"|& \n #include "lib/jxl/base/common.h" \n namespace jpegli { using namespace jxl; }|' $jxl/lib/jpegli/common.h
+    $jxl_dir/lib/extras/*/jpegli.* $jxl_dir/tools/[cd]jpegli.cc $jxl_dir/lib/jpegli/*
+  sed -i 's/} JxlDataType;/& int jpegli_bytes_per_sample(JxlDataType data_type);/' $jxl_dir/lib/include/jxl/types.h
+  sed -i 's|#include "lib/extras/include_jpeglib.h"|& \n #include "lib/jxl/base/common.h" \n namespace jpegli { using namespace jxl; }|' $jxl_dir/lib/jpegli/common.h
   sed -i \
     -e 's/namespace jpegli {/namespace jxl {/' \
     -e 's/jpegli::/jxl::/g' \
     -e 's/namespace jpegli_tools {/& using namespace jpegxl::tools;/' \
-    $jxl/lib/extras/dec/jpegli.* $jxl/lib/extras/enc/jpegli.* $jxl/tools/cjpegli.cc $jxl/tools/djpegli.cc
-  sed -i '/^find_package(JPEG)$/c\set(JPEG_FOUND TRUE)\nset(JPEG_LIBRARIES JPEG::JPEG)\nset(JPEG_INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}/include/jpegli")' $jxl/lib/jxl_extras.cmake
+    $jxl_dir/lib/extras/*/jpegli.* $jxl_dir/tools/[cd]jpegli.cc
+  sed -i '/^find_package(JPEG)$/c\set(JPEG_FOUND TRUE)\nset(JPEG_LIBRARIES JPEG::JPEG)\nset(JPEG_INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}/include/jpegli")' $jxl_dir/lib/jxl_extras.cmake
   echo '
     include(jpegli_lists.cmake)
     add_library(jpegli-static STATIC ${JPEGLI_INTERNAL_JPEGLI_SOURCES} ${JPEGLI_INTERNAL_JPEGLI_WRAPPER_SOURCES})
@@ -82,11 +88,11 @@ if [ "$1" = fetch ]; then
     target_include_directories(jpegli-static PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/include/jpegli)
     target_sources(jxl_extras-internal PRIVATE extras/dec/jpegli.cc extras/enc/jpegli.cc)
     target_link_libraries(jxl_extras-internal PRIVATE jpegli-static)
-  ' >> $jxl/lib/CMakeLists.txt
-  echo '#include "ectjpeg_cost.inc"' >> $jxl/lib/jpegli/entropy_coding.cc
+  ' >> $jxl_dir/lib/CMakeLists.txt
+  echo '#include "ectjpeg.cpp"' >> $jxl_dir/lib/jpegli/entropy_coding.cc
   for applet in jxlinfo cjxl djxl cjpegli djpegli; do
-    file=$jxl/tools/$applet.cc
-    [ -e $file ] || file=$jxl/tools/${applet}_main.cc
+    file=$jxl_dir/tools/$applet.cc
+    [ -e $file ] || file=$jxl_dir/tools/${applet}_main.cc
     sed -i "s/int main(/extern \"C\" int cmd_${applet}_main(/" $file
   done
   # > finished
