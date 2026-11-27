@@ -1,5 +1,5 @@
-#include "ectjpeg.h"
-#include "ectpng.h"
+#include "ect_jpeg.h"
+#include "ect_png.h"
 #include "gztools.h"
 #include "support.h"
 #include "zipalign/ZipAlign.h"

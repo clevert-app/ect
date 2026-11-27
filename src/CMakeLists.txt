@@ -23,11 +23,11 @@ add_executable(ect
   main.cpp
   gztools.cpp
   support.cpp
-  ectpng.cpp
-  # add headers so they get added to things like xcode projects
+  ect_png.cpp
+  # headers
   gztools.h
   support.h
-  ectpng.h
+  ect_png.h
 )
 add_executable(ect::ect ALIAS ect)
 target_include_directories(ect PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

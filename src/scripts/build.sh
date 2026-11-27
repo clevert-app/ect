@@ -89,7 +89,7 @@ if [ "$1" = fetch ]; then
     target_sources(jxl_extras-internal PRIVATE extras/dec/jpegli.cc extras/enc/jpegli.cc)
     target_link_libraries(jxl_extras-internal PRIVATE jpegli-static)
   ' >> $jxl_dir/lib/CMakeLists.txt
-  echo '#include "ectjpeg.cpp"' >> $jxl_dir/lib/jpegli/entropy_coding.cc
+  echo '#include "ect_jpeg.cpp"' >> $jxl_dir/lib/jpegli/entropy_coding.cc
   for applet in jxlinfo cjxl djxl cjpegli djpegli; do
     file=$jxl_dir/tools/$applet.cc
     [ -e $file ] || file=$jxl_dir/tools/${applet}_main.cc

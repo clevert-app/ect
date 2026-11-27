@@ -1,3 +1,4 @@
+#include "ect_jpeg.h"
 #include "lib/extras/include_jpeglib.h"
 #include "lib/jpegli/bitstream.h"
 #include <algorithm>
