@@ -390,6 +390,14 @@ static bool chunk_is(const uint8_t *chunk, const char *name) {
   return memcmp(chunk + 4, name, 4) == 0;
 }
 
+// Chunks that change how the image looks, which stripping metadata keeps
+static bool is_visual_chunk(const uint8_t *chunk) {
+  for (const char *name : {"cHRM", "cICP", "cLLI", "gAMA", "iCCP", "mDCV", "sRGB", "tRNS"})
+    if (chunk_is(chunk, name))
+      return true;
+  return false;
+}
+
 static Image read_image(const uint8_t *data, size_t size) {
   Input input = {data, size};
   png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, png_failure, nullptr);
@@ -1002,7 +1010,7 @@ int ect_png(const uint8_t *in_buf, size_t in_size, uint8_t **out_buf, size_t *ou
     if (chunk_is(chunk, "acTL"))
       return 1; // is animated
     // The input's color type tells which kind of profile it is
-    if (chunk_is(chunk, "iCCP") && !strip)
+    if (chunk_is(chunk, "iCCP"))
       profile = in_buf[25] & PNG_COLOR_MASK_COLOR ? Profile::color : Profile::gray;
     chunk += size;
   }
@@ -1068,7 +1076,7 @@ int ect_png(const uint8_t *in_buf, size_t in_size, uint8_t **out_buf, size_t *ou
         data_written = true;
       }
     } else {
-      bool keep = !strip || !(chunk[4] & 32) || chunk_is(chunk, "tRNS");
+      bool keep = !strip || !(chunk[4] & 32) || is_visual_chunk(chunk);
       // Like getChunks/insertChunks, replace tRNS and omit sBIT/bKGD
       // when the color representation can change. Reuse keeps them intact.
       if (!reuse && (chunk_is(chunk, "tRNS") || chunk_is(chunk, "sBIT") || chunk_is(chunk, "bKGD")))
